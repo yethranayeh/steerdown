@@ -1,0 +1,34 @@
+{
+	"name": "steerdown",
+	"version": "0.1.0-dev",
+	"description": "Typed reading paths for Markdown judged at build time",
+	"license": "MIT",
+	"author": "Alper Halil",
+	"keywords": [
+		"markdown",
+		"documentation",
+		"related-content",
+		"reading-path",
+		"static-site"
+	],
+	"type": "module",
+	"engines": {
+		"node": ">=22.0.0"
+	},
+	"bin": {
+		"steerdown": "./dist/cli.js"
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "bun scripts/build.ts",
+		"typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit",
+		"prepublishOnly": "bun run typecheck && bun test && bun run build"
+	},
+	"devDependencies": {
+		"@types/bun": "1.3.14",
+		"@types/node": "22.20.5",
+		"typescript": "5.9.3"
+	}
+}
