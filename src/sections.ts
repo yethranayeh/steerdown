@@ -186,7 +186,6 @@ export function splitPage(page: string, markdown: string): Array<Section> {
 }
 
 const linkListShareForHub = 0.6;
-const minimumLinksForHub = 3;
 const linkListItem = /^(?:[-*+]|\d+[.)])\s+\[[^\]]+\]\([^)]*\)/;
 const lineThatIsOnlyALink = /^\[[^\]]+\]\([^)]*\)$/;
 
@@ -202,8 +201,7 @@ export function isLinkHub(text: string): boolean {
   const linkLines = lines.filter(
     (line) => linkListItem.test(line) || lineThatIsOnlyALink.test(line),
   );
-  const linkCount = text.match(/\]\(/g)?.length ?? 0;
-  return linkLines.length / lines.length >= linkListShareForHub && linkCount >= minimumLinksForHub;
+  return linkLines.length / lines.length >= linkListShareForHub;
 }
 
 /** Reads and splits every page, leaving out link hubs. */

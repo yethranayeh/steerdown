@@ -115,7 +115,14 @@ describe("isLinkHub", () => {
     ).toBe(false);
   });
 
-  test("needs more than a couple of links", () => {
-    expect(isLinkHub("- [One](one.md)\n- [Two](two.md)")).toBe(false);
+  test("treats a short list of links as a hub", () => {
+    expect(isLinkHub("- [One](one.md): the first page.\n- [Two](two.md)")).toBe(true);
+    expect(isLinkHub("- [One](one.md): the only page.")).toBe(true);
+  });
+
+  test("keeps a section with prose beside a link", () => {
+    expect(isLinkHub("Install the tool first.\n\nThen configure it.\n\n- [Setup](setup.md)")).toBe(
+      false,
+    );
   });
 });
