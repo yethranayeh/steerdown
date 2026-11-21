@@ -19,6 +19,9 @@
     "skills"
   ],
   "type": "module",
+  "exports": {
+    "./browser": "./dist/steerdown.js"
+  },
   "scripts": {
     "build": "bun scripts/build.ts",
     "format": "oxfmt src tests scripts skills README.md package.json tsconfig.json tsconfig.build.json .oxlintrc.json",
@@ -35,6 +38,7 @@
     "@types/node": "22.20.5",
     "oxfmt": "0.79.0",
     "oxlint": "1.94.0",
+    "playwright-core": "1.65.1",
     "typescript": "5.9.3"
   },
   "engines": {

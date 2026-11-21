@@ -18,20 +18,26 @@ export type NodeAdapter<N> = {
  * One line of a section. Headings carry their level. `linkLed` marks a paragraph that is only a
  * link, a list item that starts with one, or a block inside a link.
  */
-export type Block = {
+export type Block<N = unknown> = {
   kind: "paragraph" | "item" | "heading" | "code" | "table";
   text: string;
   level?: number;
   linkLed?: boolean;
+  /** The text nodes of a paragraph or list item, in order, when the split keeps them. */
+  sources?: Array<N>;
 };
 
 /** A section of a page. The anchor is the id it starts at, empty for the page intro. */
-export type SplitSection = { anchor: string; heading: string; blocks: Array<Block> };
+export type SplitSection<N = unknown> = {
+  anchor: string;
+  heading: string;
+  blocks: Array<Block<N>>;
+};
 
-export type SplitPage = {
+export type SplitPage<N = unknown> = {
   /** The first `h1` in the content, empty when there is none. */
   title: string;
-  sections: Array<SplitSection>;
+  sections: Array<SplitSection<N>>;
   /** The text of each `h2` that has no id to start a section at. */
   idlessHeadings: Array<string>;
 };
@@ -243,19 +249,22 @@ type IdHolder<N> = { id: string; node: N; textSeen: boolean };
 /** Walks a page's content in document order and collects its sections and blocks. */
 class PageSplitter<N> {
   private title: string | undefined;
-  private readonly sections: Array<SplitSection> = [{ anchor: "", heading: "", blocks: [] }];
+  private readonly sections: Array<SplitSection<N>> = [{ anchor: "", heading: "", blocks: [] }];
   private readonly idlessHeadings: Array<string> = [];
   /** The running line of text and whether each part of it is inside a link. */
-  private run: Array<{ text: string; linked: boolean }> = [];
+  private run: Array<{ text: string; linked: boolean; source?: N }> = [];
   private linkDepth = 0;
   private itemPending = false;
   /** The id of the latest heading, whose own anchor links are left out of the text. */
   private headingId: string | undefined;
   private readonly idHolders: Array<IdHolder<N>> = [];
 
-  constructor(private readonly adapter: NodeAdapter<N>) {}
+  constructor(
+    private readonly adapter: NodeAdapter<N>,
+    private readonly keepSources: boolean,
+  ) {}
 
-  split(roots: Array<N>): SplitPage {
+  split(roots: Array<N>): SplitPage<N> {
     for (const root of roots) {
       this.walkChildren(root);
     }
@@ -274,7 +283,7 @@ class PageSplitter<N> {
   private walk(node: N) {
     const text = this.adapter.text(node);
     if (text !== undefined) {
-      this.addText(text);
+      this.addText(text, node);
       return;
     }
     const name = this.adapter.name(node);
@@ -337,8 +346,8 @@ class PageSplitter<N> {
     }
   }
 
-  private addText(text: string) {
-    this.run.push({ text, linked: this.linkDepth > 0 });
+  private addText(text: string, source?: N) {
+    this.run.push({ text, linked: this.linkDepth > 0, source });
     if (text.trim() !== "") {
       this.markTextSeen();
     }
@@ -356,10 +365,14 @@ class PageSplitter<N> {
     this.itemPending = false;
     const allLinked = parts.every((part) => part.linked);
     const startsWithLink = kind === "item" && parts[0]!.linked;
-    this.sections.at(-1)!.blocks.push({ kind, text, linkLed: allLinked || startsWithLink });
+    const block: Block<N> = { kind, text, linkLed: allLinked || startsWithLink };
+    if (this.keepSources) {
+      block.sources = parts.flatMap((part) => (part.source === undefined ? [] : [part.source]));
+    }
+    this.sections.at(-1)!.blocks.push(block);
   }
 
-  private addBlock(block: Block) {
+  private addBlock(block: Block<N>) {
     this.flush();
     if (block.text !== "") {
       this.sections.at(-1)!.blocks.push(block);
@@ -404,10 +417,15 @@ class PageSplitter<N> {
 /**
  * Splits page content into sections. A section starts at an `h2` with an id, or at an `h2` whose
  * closest element with an id holds no other `h2` and no text before it. Text before the first
- * section is the page intro, left out when empty.
+ * section is the page intro, left out when empty. With `keepSources`, each paragraph and list item
+ * lists the text nodes it was read from.
  */
-export function splitContent<N>(roots: Array<N>, adapter: NodeAdapter<N>): SplitPage {
-  return new PageSplitter(adapter).split(roots);
+export function splitContent<N>(
+  roots: Array<N>,
+  adapter: NodeAdapter<N>,
+  options: { keepSources?: boolean } = {},
+): SplitPage<N> {
+  return new PageSplitter(adapter, options.keepSources ?? false).split(roots);
 }
 
 /**

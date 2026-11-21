@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataFilePath, emit, pageUrl } from "../src/emit.ts";
+import { emit } from "../src/emit.ts";
+import { dataFilePath, htmlFileOf, pageUrl } from "../src/urls.ts";
 import { graphVersion, relations } from "../src/graph.ts";
 
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -114,6 +115,7 @@ describe("page URLs", () => {
     ["docs/cli/index.html", "/docs/cli/", "steerdown/docs/cli/index.json"],
   ])("%s is served at %s with its data in %s", (htmlFile, url, dataFile) => {
     expect(pageUrl(htmlFile)).toBe(url);
+    expect(htmlFileOf(url)).toBe(htmlFile);
     expect(dataFilePath(htmlFile)).toBe(dataFile);
   });
 });

@@ -7,9 +7,7 @@ import { ReportedError } from "./errors.ts";
 import { readGraph } from "./graph.ts";
 import { candidatesBySection } from "./rank.ts";
 import { coveredScore } from "./scores.ts";
-
-/** The folder under the built site that holds one data file per page. */
-export const emitFolder = "steerdown";
+import { dataFilePath, pageUrl } from "./urls.ts";
 
 /** A concept index into the file's `concepts` and its score, from "Covers part of it" up. */
 type ConceptScore = [concept: number, score: number];
@@ -58,16 +56,6 @@ export type EmitReport = {
   /** Links dropped because their target's heading has no matching id in the built HTML. */
   linksWithoutId: number;
 };
-
-/** The URL a built HTML file is served at: `x/index.html` is `/x/`, `x.html` stays `/x.html`. */
-export function pageUrl(htmlFile: string) {
-  return `/${htmlFile.replace(/(^|\/)index\.html$/, "$1")}`;
-}
-
-/** Where a page's data file goes: `x/index.html` gets `steerdown/x/index.json`, `x.html` gets `steerdown/x.json`. */
-export function dataFilePath(htmlFile: string) {
-  return `${emitFolder}/${htmlFile.replace(/\.html$/, ".json")}`;
-}
 
 /** Reads a graph page's built HTML, or returns undefined when the site no longer has it. */
 function readBuiltPage(htmlDirectory: string, page: string): BuiltPage | undefined {

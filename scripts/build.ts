@@ -1,5 +1,5 @@
 /**
- * Compiles the script and makes it executable
+ * Compiles the CLI, makes it executable and bundles the browser API into one file.
  */
 import { chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -20,3 +20,18 @@ if (compile.exitCode !== 0) {
 }
 
 chmodSync(join(outputDirectory, "cli.js"), 0o755);
+
+const bundle = await Bun.build({
+  entrypoints: [join(root, "src/browser.ts")],
+  outdir: outputDirectory,
+  naming: "steerdown.js",
+  target: "browser",
+  format: "esm",
+  minify: true,
+});
+if (!bundle.success) {
+  for (const message of bundle.logs) {
+    console.error(message);
+  }
+  process.exit(1);
+}

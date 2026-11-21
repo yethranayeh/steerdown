@@ -1,8 +1,8 @@
 import type { Edge, GraphSection, Link } from "./graph.ts";
 
 import { relations } from "./graph.ts";
+import { pickLinks } from "./pick.ts";
 
-const linksPerSection = 3;
 /**
  * Labels below this probability are left out.
  * Above it, independent runs agree on nearly every label.
@@ -11,7 +11,8 @@ const minimumProbability = 0.6;
 /** Largest share of sections whose links may point to one target. */
 const largestTargetShare = 0.1;
 
-export type Candidate = { to: number; relation: string; probability: number };
+/** A judged link that may be shown. Page is the target's page, for the variety rules. */
+export type Candidate = { to: number; relation: string; probability: number; page: string };
 
 /** Sorts candidates by falling probability, then by target index. */
 function mostProbableFirst(first: Candidate, second: Candidate) {
@@ -59,7 +60,7 @@ export function candidatesBySection(
       continue;
     }
 
-    candidates[from]!.push({ to, relation, probability });
+    candidates[from]!.push({ to, relation, probability, page: sections[to]!.page });
   }
 
   for (const list of candidates) {
@@ -67,43 +68,6 @@ export function candidatesBySection(
   }
 
   return candidates;
-}
-
-/** True when a candidate is not yet picked and adds neither a second prerequisite nor a page already linked. */
-function fitsWithPicked(
-  candidate: Candidate,
-  picked: Array<Candidate>,
-  sections: Array<GraphSection>,
-) {
-  const isPicked = picked.includes(candidate);
-  const isSecondPrerequisite =
-    candidate.relation === "prerequisite" &&
-    picked.some((link) => link.relation === "prerequisite");
-  const sharesPage = picked.some(
-    (link) => sections[link.to]!.page === sections[candidate.to]!.page,
-  );
-  return !isPicked && !isSecondPrerequisite && !sharesPage;
-}
-
-/**
- * Picks up to three links from the candidates: the most probable `next_step` whenever there is
- * one, then the most probable rest, with at most one `prerequisite` and one link per page.
- */
-function pickLinks(candidates: Array<Candidate>, sections: Array<GraphSection>): Array<Candidate> {
-  const picked: Array<Candidate> = [];
-  const nextStep = candidates.find((candidate) => candidate.relation === "next_step");
-  if (nextStep !== undefined) {
-    picked.push(nextStep);
-  }
-
-  for (const candidate of candidates) {
-    const hasRoom = picked.length < linksPerSection;
-    if (hasRoom && fitsWithPicked(candidate, picked, sections)) {
-      picked.push(candidate);
-    }
-  }
-
-  return picked.sort(mostProbableFirst);
 }
 
 /**
@@ -153,13 +117,11 @@ export function rankLinks(
 ): Array<Array<Link>> {
   const candidates = candidatesBySection(sections, edges, scopes);
   const mostSectionsPerTarget = Math.max(1, Math.floor(largestTargetShare * sections.length));
-  let picks = candidates.map((list) => pickLinks(list, sections));
+  let picks = candidates.map((list) => pickLinks(list));
 
   let repick = dropTargetsOverLimit(picks, candidates, mostSectionsPerTarget);
   while (repick.size > 0) {
-    picks = picks.map((links, from) =>
-      repick.has(from) ? pickLinks(candidates[from]!, sections) : links,
-    );
+    picks = picks.map((links, from) => (repick.has(from) ? pickLinks(candidates[from]!) : links));
     repick = dropTargetsOverLimit(picks, candidates, mostSectionsPerTarget);
   }
 
