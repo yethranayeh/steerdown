@@ -68,6 +68,8 @@ export type Graph = {
   /** Hash of the question set, so a changed question judges every pair again. */
   questions: string;
   relations: ReadonlyArray<string>;
+  /** The build's scope paths, present when it had any. Sections in two scopes link only as alternatives. */
+  scopes?: Array<string>;
   sections: Array<GraphSection>;
   skipped: Array<SkippedSection>;
   edges: Array<Edge>;
@@ -102,11 +104,13 @@ export function writeGraph(path: string, graph: Graph) {
     items.length === 0
       ? "[]"
       : `[\n${items.map((item) => `    ${JSON.stringify(item)}`).join(",\n")}\n  ]`;
+  const hasScopes = graph.scopes !== undefined && graph.scopes.length > 0;
   const fields = [
     `  "version": ${graph.version}`,
     `  "model": ${JSON.stringify(graph.model)}`,
     `  "questions": ${JSON.stringify(graph.questions)}`,
     `  "relations": ${JSON.stringify(graph.relations)}`,
+    ...(hasScopes ? [`  "scopes": ${JSON.stringify(graph.scopes)}`] : []),
     `  "sections": ${list(graph.sections)}`,
     `  "skipped": ${list(graph.skipped)}`,
     `  "edges": ${list(graph.edges)}`,

@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 import type { BuildOptions, BuildReport } from "./build.ts";
 import type { EmbeddingClient } from "./embeddings.ts";
+import type { EmitReport } from "./emit.ts";
 import type { JevClient } from "./jev.ts";
 
 import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { build, BuildError, defaultMaxPairs } from "./build.ts";
 import { conceptInput, proposeConcepts } from "./concepts.ts";
+import { emit, emitFolder } from "./emit.ts";
 import { ReportedError } from "./errors.ts";
 import { officialEndpoint } from "./jev.ts";
 import { installSkill } from "./skill.ts";
@@ -28,6 +31,10 @@ Commands:
   concepts propose <file>   Check the concepts proposed in <file>, a JSON array, and
                             add them to steerdown.proposals.json next to the graph
                             file. Nothing is written when one has a problem.
+  emit --html <dir>         Write one file per page into the built site at <dir>,
+                            under ${emitFolder}/, holding the suggested links a
+                            page's browser script shows. Reads the graph file and
+                            makes no requests.
   skill install             Install the steerdown-concepts agent skill into this
                             project with the skills CLI (npx --yes skills add).
 
@@ -50,7 +57,7 @@ Build options:
                      has a cosine similarity below <n>, from -1 to 1. Scales
                      differ between embedding models. Default: no minimum.
 
-Concepts options:
+Concepts and emit options:
   --graph <file>     Graph file to read. Default: ${defaultOutPath}
 
 Environment:
@@ -78,6 +85,7 @@ class UsageError extends ReportedError {}
 const commandOptions: Record<string, Array<string>> = {
   build: ["out", "html", "exclude", "scope", "max-pairs", "min-similarity"],
   concepts: ["graph"],
+  emit: ["html", "graph"],
   skill: [],
 };
 
@@ -224,6 +232,34 @@ async function runBuild(positionals: Array<string>, values: BuildValues) {
   process.stdout.write(formatReport(report, options.outPath));
 }
 
+/** The summary a finished emit prints. */
+function formatEmitReport(report: EmitReport, htmlDirectory: string) {
+  const lines = [
+    `Pages written: ${formatCount(report.written)}`,
+    `Pages left out: ${formatCount(report.leftOut.length)}`,
+    ...report.leftOut.map((page) => `  ${page.page}: ${page.reason}`),
+    `Links dropped: ${formatCount(report.linksWithoutPage)} to a page with no built HTML, ${formatCount(report.linksWithoutId)} to a heading with no matching id`,
+    `Wrote ${formatCount(report.bytes)} bytes to ${join(htmlDirectory, emitFolder)}`,
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function runEmit(positionals: Array<string>, values: { html?: string; graph?: string }) {
+  rejectExtraArguments(positionals);
+  const htmlDirectory = values.html;
+
+  if (htmlDirectory === undefined) {
+    throw new UsageError("emit needs --html, the built site");
+  }
+
+  if (!isDirectory(htmlDirectory)) {
+    throw new BuildError(`'${htmlDirectory}' is not a directory`);
+  }
+
+  const report = emit({ graphPath: values.graph ?? defaultOutPath, htmlDirectory });
+  process.stdout.write(formatEmitReport(report, htmlDirectory));
+}
+
 function rejectExtraArguments(extra: Array<string>) {
   if (extra.length > 0) {
     throw new UsageError(`unexpected argument '${extra[0]}'`);
@@ -313,6 +349,8 @@ async function run(args: Array<string>) {
     await runBuild(rest, values);
   } else if (command === "concepts") {
     runConcepts(rest, values.graph);
+  } else if (command === "emit") {
+    runEmit(rest, values);
   } else {
     await runSkill(rest);
   }

@@ -410,6 +410,7 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     model: progress.model,
     questions: questionSetHash,
     relations,
+    scopes: options.scopes,
     sections: graphSections,
     skipped,
     edges,

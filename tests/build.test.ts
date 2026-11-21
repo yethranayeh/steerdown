@@ -186,6 +186,16 @@ describe("steerdown build", () => {
     }
   });
 
+  test("records the scopes in the graph, and none without --scope", async () => {
+    await runCli(["build", "docs", "--scope", "guide", "--scope", "install.md"]);
+    const scoped = JSON.parse(readFileSync(graphPath, "utf8")) as { scopes?: Array<string> };
+    expect(scoped.scopes).toEqual(["guide", "install.md"]);
+
+    await runCli(["build", "docs"]);
+    const unscoped = JSON.parse(readFileSync(graphPath, "utf8")) as { scopes?: Array<string> };
+    expect(unscoped.scopes ?? []).toEqual([]);
+  });
+
   test("puts the candidates most similar in wording first", async () => {
     const similar = join(workDirectory, "similar");
     writeFile(join(similar, "a.md"), "## Colours\n\nPick colours for the theme palette.\n");
