@@ -11,8 +11,8 @@
     "rewriteRelativeImportExtensions": true,
     "noEmit": false,
     "noEmitOnError": true,
-    "declaration": false
+    "declaration": true
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/browser.ts"]
+  "exclude": ["src/**/*.test.ts"]
 }

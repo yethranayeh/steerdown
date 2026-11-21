@@ -1,6 +1,6 @@
 {
   "name": "steerdown",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Typed reading paths for built HTML judged at build time",
   "keywords": [
     "documentation",
@@ -21,7 +21,10 @@
   ],
   "type": "module",
   "exports": {
-    "./browser": "./dist/steerdown.js"
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/steerdown.js"
+    }
   },
   "scripts": {
     "build": "bun scripts/build.ts",
