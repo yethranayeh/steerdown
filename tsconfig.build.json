@@ -1,18 +1,18 @@
 {
-	"extends": "./tsconfig.json",
-	"compilerOptions": {
-		"target": "ES2023",
-		"module": "NodeNext",
-		"moduleResolution": "NodeNext",
-		"types": ["node"],
-		"rootDir": "src",
-		"outDir": "dist",
-		"allowImportingTsExtensions": false,
-		"rewriteRelativeImportExtensions": true,
-		"noEmit": false,
-		"noEmitOnError": true,
-		"declaration": false
-	},
-	"include": ["src"],
-	"exclude": ["src/**/*.test.ts"]
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "rootDir": "src",
+    "outDir": "dist",
+    "allowImportingTsExtensions": false,
+    "rewriteRelativeImportExtensions": true,
+    "noEmit": false,
+    "noEmitOnError": true,
+    "declaration": false
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
 }
