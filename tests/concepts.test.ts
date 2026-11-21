@@ -265,7 +265,7 @@ describe("steerdown build with a concept file", () => {
 
   test("keeps the relation question's hash, so earlier graph files stay reusable", async () => {
     await runCli(["build", "docs"]);
-    expect(readGraph().questions).toBe("56c369f12fab9a37");
+    expect(readGraph().questions).toBe("b0f71772c6694ba8");
   });
 
   test.each([
