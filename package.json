@@ -15,13 +15,14 @@
     "steerdown": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills"
   ],
   "type": "module",
   "scripts": {
     "build": "bun scripts/build.ts",
-    "format": "oxfmt src tests scripts README.md package.json tsconfig.json tsconfig.build.json .oxlintrc.json",
-    "format:check": "oxfmt --check src tests scripts README.md package.json tsconfig.json tsconfig.build.json .oxlintrc.json",
+    "format": "oxfmt src tests scripts skills README.md package.json tsconfig.json tsconfig.build.json .oxlintrc.json",
+    "format:check": "oxfmt --check src tests scripts skills README.md package.json tsconfig.json tsconfig.build.json .oxlintrc.json",
     "lint": "oxlint --deny-warnings src tests scripts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.build.json --noEmit",
     "prepublishOnly": "bun run typecheck && bun test && bun run build"

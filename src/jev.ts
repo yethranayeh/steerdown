@@ -8,9 +8,14 @@ export type ChoiceAnswer = {
   confidence: number;
 };
 
-export type JevResponse = {
+export type ScoreAnswer = {
+  score: number;
+  confidence: number;
+};
+
+export type JevResponse<Answer = ChoiceAnswer> = {
   model: string;
-  answers: Record<string, ChoiceAnswer>;
+  answers: Record<string, Answer>;
   usage: { input_tokens: number };
 };
 
@@ -36,7 +41,10 @@ function retryDelay(attempt: number, retryAfter: string | null): number {
 }
 
 /** Sends one System One request, retrying rate-limited (429) and overloaded (529) responses. */
-export async function askJev(client: JevClient, body: object): Promise<JevResponse> {
+export async function askJev<Answer = ChoiceAnswer>(
+  client: JevClient,
+  body: object,
+): Promise<JevResponse<Answer>> {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (client.apiKey !== undefined) {
     headers.authorization = `Bearer ${client.apiKey}`;
@@ -54,7 +62,7 @@ export async function askJev(client: JevClient, body: object): Promise<JevRespon
     const detail = (await response.text()).slice(0, 300);
     throw new JevError(`Jev returned status ${response.status}: ${detail}`);
   }
-  return (await response.json()) as JevResponse;
+  return (await response.json()) as JevResponse<Answer>;
 }
 
 /** Runs `work` over every item with at most `limit` running at once, stopping at the first error. */

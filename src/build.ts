@@ -1,12 +1,17 @@
 import type { Edge, Graph, GraphSection } from "./graph.ts";
 import type { JevClient, JevResponse } from "./jev.ts";
+import type { RequestProgress } from "./judge.ts";
+import type { ScoreReport, ScoreRun } from "./scores.ts";
 import type { Section, SkippedSection } from "./sections.ts";
 
-import { createHash } from "node:crypto";
 import { readPageIds } from "./anchors.ts";
+import { conceptFilePath, readConceptFile } from "./concepts.ts";
+import { ReportedError } from "./errors.ts";
 import { graphVersion, readGraph, relations, writeGraph } from "./graph.ts";
 import { askJev, officialEndpoint, runPooled } from "./jev.ts";
+import { hash, judgedState, judgedWordLimit, model, requestsInFlight, round } from "./judge.ts";
 import { rankLinks } from "./rank.ts";
+import { planScores, scoreConcepts } from "./scores.ts";
 import { findMarkdownFiles, readSections } from "./sections.ts";
 import { cosine, tfidfVectors } from "./similarity.ts";
 
@@ -30,17 +35,14 @@ export type BuildReport = {
   judged: number;
   requests: number;
   inputTokens: number;
+  /** Present when the build read a concept file. */
+  scores: ScoreReport | undefined;
 };
 
-export class BuildError extends Error {}
+export class BuildError extends ReportedError {}
 
 export const defaultMaxPairs = 100_000;
-const model = "jev-latest";
 const candidatesPerRequest = 16;
-const requestsInFlight = 4;
-const judgedWordLimit = 600;
-/** Probabilities and confidences are stored to three decimals. */
-const storedPrecision = 1000;
 
 const relationCriteria: Record<(typeof relations)[number], string> = {
   prerequisite: "Explains something the reader needs to understand before `reading` makes sense.",
@@ -62,22 +64,7 @@ type Judgment = { relation: string; probabilities: Array<number>; confidence: nu
 /** One request: the section being read and the candidates judged against it. */
 type RequestJob = { from: number; targets: Array<number> };
 
-type JudgingProgress = {
-  model: string;
-  requests: number;
-  inputTokens: number;
-  judged: number;
-  /** The error that stopped judging, if a request failed. */
-  failure: unknown;
-};
-
-function hash(value: unknown) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 16);
-}
-
-function round(value: number) {
-  return Math.round(value * storedPrecision) / storedPrecision;
-}
+type JudgingProgress = RequestProgress & { model: string; judged: number };
 
 /** The key a judgment is stored under: the hashes of the section read and the candidate. */
 function pairKey(fromHash: string, toHash: string) {
@@ -87,20 +74,6 @@ function pairKey(fromHash: string, toHash: string) {
 /** Candidates are numbered from 1 in a request, and each has its own question. */
 function questionKey(candidateNumber: number) {
   return `relation_${candidateNumber}`;
-}
-
-function judgedText(text: string) {
-  const words = text.split(/\s+/);
-
-  return words.length > judgedWordLimit ? words.slice(0, judgedWordLimit).join(" ") : text;
-}
-
-function judgedState(section: Section) {
-  return {
-    page_title: section.pageTitle,
-    heading: section.heading,
-    text: judgedText(section.text),
-  };
 }
 
 /** The heading slug after the `#` in a section id. */
@@ -228,20 +201,20 @@ function planRequests(
   return jobs;
 }
 
-/** Stops the build before judging when there are too many pairs or no API key to judge them. */
-function checkJudgingAllowed(toJudge: number, options: BuildOptions) {
+/** Stops the build before judging when there are too many pairs or no API key to ask Jev. */
+function checkJudgingAllowed(toJudge: number, toScore: number, options: BuildOptions) {
   if (toJudge > options.maxPairs) {
     throw new BuildError(
       `${toJudge} section pairs need judging, more than the limit of ${options.maxPairs}. Raise it with --max-pairs.`,
     );
   }
   const keyNeeded =
-    toJudge > 0 &&
+    toJudge + toScore > 0 &&
     options.client.endpoint === officialEndpoint &&
     options.client.apiKey === undefined;
   if (keyNeeded) {
     throw new BuildError(
-      `${toJudge} section pairs need judging. Set TYPESAFE_API_KEY to judge them.`,
+      `${toJudge} section pairs need judging and ${toScore} concept scores need scoring. Set TYPESAFE_API_KEY to ask Jev.`,
     );
   }
 }
@@ -347,13 +320,38 @@ function collectEdges(
   return edges;
 }
 
+/** Throws the error that stopped judging or scoring, saying how much was written before it. */
+function throwFailure({
+  failure,
+  edges,
+  pairs,
+  scores,
+  outPath,
+}: {
+  failure: unknown;
+  edges: Array<Edge>;
+  pairs: number;
+  scores: ScoreRun;
+  outPath: string;
+}): never {
+  const message = failure instanceof Error ? failure.message : String(failure);
+  const { fields, report } = scores;
+  const scoresWritten =
+    report === undefined ? "" : ` and ${fields.scores?.length} of ${report.total} scores`;
+  throw new BuildError(
+    `${message}\nWrote the ${edges.length} of ${pairs} pairs${scoresWritten} done so far to ${outPath}. Run the build again to do the rest.`,
+  );
+}
+
 /**
  * Splits the Markdown under a directory into sections, judges every pair of sections on different
- * pages with Jev, and writes the graph file. Pairs whose text is unchanged since the last graph
- * file are reused, not judged again. When a request fails, the pairs judged so far are written
- * before the error is thrown, so the next run continues from there.
+ * pages with Jev, scores every section against the concept file's concepts when there is one, and
+ * writes the graph file. Pairs and scores whose text is unchanged since the last graph file are
+ * reused, not asked again. When a request fails, the results so far are written before the error
+ * is thrown, so the next run continues from there.
  */
 export async function build(options: BuildOptions): Promise<BuildReport> {
+  const concepts = readConceptFile(conceptFilePath(options.outPath));
   const pages = findMarkdownFiles(options.directory, options.excluded);
   const { sections, skipped } = readBuildSections(options, pages);
   const hashes = sections.map((section) => hash(judgedState(section)));
@@ -365,7 +363,8 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     judgments.has(pairKey(hashes[from]!, hashes[to]!)),
   );
   const toJudge = jobs.reduce((count, job) => count + job.targets.length, 0);
-  checkJudgingAllowed(toJudge, options);
+  const scorePlan = concepts && planScores(concepts, hashes, previous);
+  checkJudgingAllowed(toJudge, scorePlan?.toScore ?? 0, options);
 
   const progress = await judgePairs({
     jobs,
@@ -374,6 +373,13 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     judgments,
     client: options.client,
     previousModel: previous?.model ?? model,
+  });
+  const scores = await scoreConcepts({
+    plan: scorePlan,
+    judgingFailed: progress.failure !== undefined,
+    sections,
+    hashes,
+    client: options.client,
   });
 
   const graphSections: Array<GraphSection> = sections.map((section, index) => ({
@@ -393,14 +399,12 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     skipped,
     edges,
     links: rankLinks(graphSections, edges, options.scopes),
+    ...scores.fields,
   });
 
-  if (progress.failure !== undefined) {
-    const { failure } = progress;
-    const message = failure instanceof Error ? failure.message : String(failure);
-    throw new BuildError(
-      `${message}\nWrote the ${edges.length} of ${pairs} pairs judged so far to ${options.outPath}. Run the build again to judge the rest.`,
-    );
+  const failure = progress.failure ?? scores.progress.failure;
+  if (failure !== undefined) {
+    throwFailure({ failure, edges, pairs, scores, outPath: options.outPath });
   }
   return {
     pages: pages.length,
@@ -409,7 +413,8 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     pairs,
     reused: pairs - toJudge,
     judged: progress.judged,
-    requests: progress.requests,
-    inputTokens: progress.inputTokens,
+    requests: progress.requests + scores.progress.requests,
+    inputTokens: progress.inputTokens + scores.progress.inputTokens,
+    scores: scores.report,
   };
 }
