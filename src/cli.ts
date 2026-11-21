@@ -17,7 +17,7 @@ import { installSkill } from "./skill.ts";
 
 const defaultOutPath = "steerdown.graph.json";
 
-const helpText = `steerdown: typed reading paths for Markdown judged at build time
+const helpText = `steerdown: typed reading paths for built HTML judged at build time
 
 Usage: steerdown <command> [options]
 

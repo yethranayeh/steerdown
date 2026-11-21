@@ -1,9 +1,10 @@
 {
   "name": "steerdown",
-  "version": "0.1.0-dev",
-  "description": "Typed reading paths for Markdown judged at build time",
+  "version": "0.1.0",
+  "description": "Typed reading paths for built HTML judged at build time",
   "keywords": [
     "documentation",
+    "html",
     "markdown",
     "reading-path",
     "related-content",

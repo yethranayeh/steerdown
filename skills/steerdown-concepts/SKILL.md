@@ -5,7 +5,7 @@ description: Propose concepts for a steerdown concept file. Use when the person 
 
 # Propose steerdown concepts
 
-steerdown scores every section of a Markdown site against the concepts in `steerdown.concepts.json`, a file the site's authors edit by hand next to the graph file. Your job is to propose concepts. A person reviews them and moves the ones they accept into the concept file. You never edit the concept file yourself.
+steerdown scores every section of a site's built HTML against the concepts in `steerdown.concepts.json`, a file the site's authors edit by hand next to the graph file. Your job is to propose concepts. A person reviews them and moves the ones they accept into the concept file. You never edit the concept file yourself.
 
 ## Steps
 
