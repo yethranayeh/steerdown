@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readSections } from "../src/sections.ts";
-import { sentenceKey, splitSentences } from "../src/split.ts";
+import { sentenceKey, splitSentences } from "../src/sentences.ts";
 
 /** The sentences of the one section a page body holds. */
 function sentencesOf(body: string) {
@@ -34,6 +34,36 @@ describe("splitSentences", () => {
       "Quoted note",
       "Note",
       "Callout body.",
+    ]);
+  });
+
+  test("keeps a sentence whole when a break falls inside inline code", () => {
+    expect(
+      sentencesOf(
+        "<p><code>list</code> returns <code>{ items, next? }</code>. Call <code>list({ from? })</code> again.</p>",
+      ),
+    ).toEqual(["list returns { items, next? }.", "Call list({ from? }) again."]);
+  });
+
+  test("keeps inline code whole when it spans several text nodes", () => {
+    expect(
+      sentencesOf("<p>Pass <code><span>{ a? </span><span>b }</span></code> here. Done.</p>"),
+    ).toEqual(["Pass { a? b } here.", "Done."]);
+  });
+
+  test("keeps a sentence whole when inline code ends in punctuation", () => {
+    expect(
+      sentencesOf(
+        "<p>Text turns into <code>?</code> before it arrives. It returns <code>[1, ...]</code>.</p>",
+      ),
+    ).toEqual(["Text turns into ? before it arrives.", "It returns [1, ...]."]);
+  });
+
+  test("still splits on punctuation right after inline code", () => {
+    expect(sentencesOf("<p>Run <code>zinn doctor</code>. Then wait? Yes.</p>")).toEqual([
+      "Run zinn doctor.",
+      "Then wait?",
+      "Yes.",
     ]);
   });
 

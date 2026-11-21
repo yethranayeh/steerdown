@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { hash } from "../src/judge.ts";
 import { readSections } from "../src/sections.ts";
-import { sentenceKey, splitSentences } from "../src/split.ts";
+import { sentenceKey, splitSentences } from "../src/sentences.ts";
 
 const origin = "https://steerdown.test";
 

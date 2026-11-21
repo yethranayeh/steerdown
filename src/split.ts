@@ -25,6 +25,8 @@ export type Block<N = unknown> = {
   linkLed?: boolean;
   /** The text nodes of a paragraph or list item, in order, when the split keeps them. */
   sources?: Array<N>;
+  /** Where inline code sits in a paragraph or list item's text, as `[start, end)` offsets. */
+  codeSpans?: Array<{ start: number; end: number }>;
 };
 
 /** A section of a page. The anchor is the id it starts at, empty for the page intro. */
@@ -65,6 +67,36 @@ const firstMarkedHeadingLevel = 3;
 
 function collapse(text: string) {
   return text.replace(htmlWhitespace, " ").trim();
+}
+
+type RunPart<N> = { text: string; linked: boolean; code: boolean; source?: N };
+
+/**
+ * Joins the parts of a running line as `collapse` would, noting where inline code lands. Code
+ * parts that touch, such as the highlighted pieces of one code span, make one span.
+ */
+function joinRun<N>(run: Array<RunPart<N>>) {
+  let text = "";
+  const codeSpans: Array<{ start: number; end: number }> = [];
+  for (const part of run) {
+    let piece = part.text.replace(htmlWhitespace, " ");
+    const isRepeatedSpace = piece.startsWith(" ") && (text === "" || text.endsWith(" "));
+    if (isRepeatedSpace) {
+      piece = piece.slice(1);
+    }
+    const start = text.length;
+    text += piece;
+    if (!part.code || piece === "") {
+      continue;
+    }
+    const lastSpan = codeSpans.at(-1);
+    if (lastSpan?.end === start) {
+      lastSpan.end = text.length;
+    } else {
+      codeSpans.push({ start, end: text.length });
+    }
+  }
+  return { text: text.trimEnd(), codeSpans };
 }
 
 /** True for content the reader never reads as text: page chrome, controls and hidden decoration. */
@@ -251,9 +283,10 @@ class PageSplitter<N> {
   private title: string | undefined;
   private readonly sections: Array<SplitSection<N>> = [{ anchor: "", heading: "", blocks: [] }];
   private readonly idlessHeadings: Array<string> = [];
-  /** The running line of text and whether each part of it is inside a link. */
-  private run: Array<{ text: string; linked: boolean; source?: N }> = [];
+  /** The running line of text and whether each part of it is inside a link or inline code. */
+  private run: Array<RunPart<N>> = [];
   private linkDepth = 0;
+  private codeDepth = 0;
   private itemPending = false;
   /** The id of the latest heading, whose own anchor links are left out of the text. */
   private headingId: string | undefined;
@@ -312,6 +345,10 @@ class PageSplitter<N> {
       this.addText(" ");
     } else if (name === "a") {
       this.visitLink(node);
+    } else if (name === "code") {
+      this.codeDepth++;
+      this.walkChildren(node);
+      this.codeDepth--;
     } else if (blockElements.has(name)) {
       this.visitBlock(node, name);
     } else {
@@ -347,7 +384,7 @@ class PageSplitter<N> {
   }
 
   private addText(text: string, source?: N) {
-    this.run.push({ text, linked: this.linkDepth > 0, source });
+    this.run.push({ text, linked: this.linkDepth > 0, code: this.codeDepth > 0, source });
     if (text.trim() !== "") {
       this.markTextSeen();
     }
@@ -356,7 +393,7 @@ class PageSplitter<N> {
   /** Ends the running line as a paragraph, or as a list item when it opens one. */
   private flush() {
     const parts = this.run.filter((part) => part.text.trim() !== "");
-    const text = collapse(this.run.map((part) => part.text).join(""));
+    const { text, codeSpans } = joinRun(this.run);
     this.run = [];
     if (text === "") {
       return;
@@ -366,6 +403,9 @@ class PageSplitter<N> {
     const allLinked = parts.every((part) => part.linked);
     const startsWithLink = kind === "item" && parts[0]!.linked;
     const block: Block<N> = { kind, text, linkLed: allLinked || startsWithLink };
+    if (codeSpans.length > 0) {
+      block.codeSpans = codeSpans;
+    }
     if (this.keepSources) {
       block.sources = parts.flatMap((part) => (part.source === undefined ? [] : [part.source]));
     }
@@ -446,31 +486,8 @@ export function judgedText(blocks: Array<Block>) {
   return blocks.map(line).join("\n");
 }
 
-const sentenceSegmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-
-const isProse = (block: Block) => block.kind === "paragraph" || block.kind === "item";
-
-/** The sentences of a section's paragraphs and list items, in reading order. */
-export function splitSentences(blocks: Array<Block>) {
-  const sentences: Array<string> = [];
-  for (const block of blocks.filter(isProse)) {
-    for (const { segment } of sentenceSegmenter.segment(block.text)) {
-      const sentence = segment.trim();
-      if (sentence !== "") {
-        sentences.push(sentence);
-      }
-    }
-  }
-  return sentences;
-}
-
-/** What a sentence's hash covers: its letters and digits, NFKC-normalized and lowercased. */
-export function sentenceKey(sentence: string) {
-  return sentence
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]/gu, "");
-}
+/** True for the blocks sentences are read from: paragraphs and list items. */
+export const isProse = (block: Block) => block.kind === "paragraph" || block.kind === "item";
 
 /** True when most of a section's paragraphs and list items are links, as in a table of contents. */
 export function isLinkHub(blocks: Array<Block>) {

@@ -5,7 +5,7 @@ import type { Section } from "./sections.ts";
 import { embeddingCachePath, embedTexts, textHash } from "./embeddings.ts";
 import { hash, judgedState, round } from "./judge.ts";
 import { candidatesBySection } from "./rank.ts";
-import { sentenceKey, splitSentences } from "./split.ts";
+import { sentenceKey, splitSentences } from "./sentences.ts";
 
 export type OriginReport = {
   links: number;

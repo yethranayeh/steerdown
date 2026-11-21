@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hash } from "../src/judge.ts";
-import { sentenceKey } from "../src/split.ts";
+import { sentenceKey } from "../src/sentences.ts";
 
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const dimensions = 64;

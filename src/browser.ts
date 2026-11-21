@@ -7,13 +7,8 @@ import type { PageFile } from "./emit.ts";
 import type { NodeAdapter } from "./split.ts";
 
 import { pickLinks } from "./pick.ts";
-import {
-  firstElement,
-  pagefindBodies,
-  sentenceKey,
-  splitContent,
-  splitSentences,
-} from "./split.ts";
+import { sentenceKey, splitSentences } from "./sentences.ts";
+import { firstElement, pagefindBodies, splitContent } from "./split.ts";
 import { dataFilePath, htmlFileOf } from "./urls.ts";
 
 type DomNode = {
