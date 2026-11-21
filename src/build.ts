@@ -1,6 +1,8 @@
+import type { EmbeddingClient } from "./embeddings.ts";
 import type { Edge, Graph, GraphSection } from "./graph.ts";
 import type { JevClient, JevResponse } from "./jev.ts";
 import type { RequestProgress } from "./judge.ts";
+import type { OriginReport } from "./origins.ts";
 import type { ScoreReport, ScoreRun } from "./scores.ts";
 import type { Section, SkippedSection } from "./sections.ts";
 
@@ -8,8 +10,10 @@ import { readPageIds } from "./anchors.ts";
 import { conceptFilePath, readConceptFile } from "./concepts.ts";
 import { ReportedError } from "./errors.ts";
 import { graphVersion, readGraph, relations, writeGraph } from "./graph.ts";
-import { askJev, officialEndpoint, runPooled } from "./jev.ts";
+import { inBatches, runPooled } from "./http.ts";
+import { askJev, officialEndpoint } from "./jev.ts";
 import { hash, judgedState, judgedWordLimit, model, requestsInFlight, round } from "./judge.ts";
+import { findOrigins } from "./origins.ts";
 import { rankLinks } from "./rank.ts";
 import { planScores, scoreConcepts } from "./scores.ts";
 import { findMarkdownFiles, readSections } from "./sections.ts";
@@ -24,6 +28,10 @@ export type BuildOptions = {
   scopes: Array<string>;
   maxPairs: number;
   client: JevClient;
+  /** Finds each link's origin sentence when set. */
+  embedding: EmbeddingClient | undefined;
+  /** Links whose nearest sentence is less similar than this get no origin sentence. */
+  minSimilarity: number | undefined;
 };
 
 export type BuildReport = {
@@ -37,6 +45,8 @@ export type BuildReport = {
   inputTokens: number;
   /** Present when the build read a concept file. */
   scores: ScoreReport | undefined;
+  /** Present when the build had an embedding endpoint. */
+  origins: OriginReport | undefined;
 };
 
 export class BuildError extends ReportedError {}
@@ -166,15 +176,6 @@ function countPairs(sections: Array<Section>) {
     pairs += candidatesOf(sections, from).length;
   });
   return pairs;
-}
-
-/** Splits a list into consecutive batches of at most `size` items. */
-function inBatches<T>(items: Array<T>, size: number): Array<Array<T>> {
-  const batches: Array<Array<T>> = [];
-  for (let start = 0; start < items.length; start += size) {
-    batches.push(items.slice(start, start + size));
-  }
-  return batches;
 }
 
 /**
@@ -345,10 +346,13 @@ function throwFailure({
 
 /**
  * Splits the Markdown under a directory into sections, judges every pair of sections on different
- * pages with Jev, scores every section against the concept file's concepts when there is one, and
- * writes the graph file. Pairs and scores whose text is unchanged since the last graph file are
- * reused, not asked again. When a request fails, the results so far are written before the error
- * is thrown, so the next run continues from there.
+ *  pages with Jev, scores every section against the concept file's concepts when present, finds
+ *  each showable link's origin sentence when there is an embedding endpoint,
+ *  and writes the graph file.
+ *
+ * Pairs and scores whose text is unchanged since the last graph file are reused,
+ *  not asked again. When a request fails, the results so far are written
+ *  before the error is thrown, so the next run continues from there.
  */
 export async function build(options: BuildOptions): Promise<BuildReport> {
   const concepts = readConceptFile(conceptFilePath(options.outPath));
@@ -390,6 +394,17 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     hash: hashes[index]!,
   }));
   const edges = collectEdges(sections, hashes, judgments);
+  const judgingFailure = progress.failure ?? scores.progress.failure;
+  const origins = await findOrigins({
+    client: judgingFailure === undefined ? options.embedding : undefined,
+    sections,
+    graphSections,
+    edges,
+    scopes: options.scopes,
+    graphPath: options.outPath,
+    minSimilarity: options.minSimilarity,
+  });
+
   writeGraph(options.outPath, {
     version: graphVersion,
     model: progress.model,
@@ -400,9 +415,10 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     edges,
     links: rankLinks(graphSections, edges, options.scopes),
     ...scores.fields,
+    ...origins.fields,
   });
 
-  const failure = progress.failure ?? scores.progress.failure;
+  const failure = judgingFailure ?? origins.failure;
   if (failure !== undefined) {
     throwFailure({ failure, edges, pairs, scores, outPath: options.outPath });
   }
@@ -416,5 +432,6 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     requests: progress.requests + scores.progress.requests,
     inputTokens: progress.inputTokens + scores.progress.inputTokens,
     scores: scores.report,
+    origins: origins.report,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isLinkHub, renderedHeading, splitPage } from "../src/sections.ts";
+import { isLinkHub, renderedInline, splitPage } from "../src/sections.ts";
 
 const ids = (markdown: string) => splitPage("guide.md", markdown).map((section) => section.id);
 
@@ -96,11 +96,9 @@ describe("splitPage", () => {
   });
 });
 
-describe("renderedHeading", () => {
+describe("renderedInline", () => {
   test("keeps intraword underscores", () => {
-    expect(renderedHeading("Use __bold__ and snake_case_name")).toBe(
-      "Use bold and snake_case_name",
-    );
+    expect(renderedInline("Use __bold__ and snake_case_name")).toBe("Use bold and snake_case_name");
   });
 });
 

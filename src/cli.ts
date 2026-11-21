@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import type { BuildOptions, BuildReport } from "./build.ts";
+import type { EmbeddingClient } from "./embeddings.ts";
 import type { JevClient } from "./jev.ts";
 
 import { existsSync, statSync } from "node:fs";
@@ -21,6 +22,8 @@ Commands:
                             sections on different pages relate, and write the graph
                             file. With a steerdown.concepts.json next to the graph
                             file, also score every section against its concepts.
+                            With an embedding endpoint, also find the sentence
+                            each suggested link grows out of.
   concepts input            Print what an agent needs to propose concepts, as JSON.
   concepts propose <file>   Check the concepts proposed in <file>, a JSON array, and
                             add them to steerdown.proposals.json next to the graph
@@ -42,6 +45,10 @@ Build options:
                      Repeat for more.
   --max-pairs <n>    Stop before judging more than <n> new pairs.
                      Default: ${defaultMaxPairs}
+  --min-similarity <n>
+                     Give a link no origin sentence when its nearest sentence
+                     has a cosine similarity below <n>, from -1 to 1. Scales
+                     differ between embedding models. Default: no minimum.
 
 Concepts options:
   --graph <file>     Graph file to read. Default: ${defaultOutPath}
@@ -50,6 +57,15 @@ Environment:
   TYPESAFE_API_KEY   Jev API key, needed when pairs need judging or sections
                      need scoring.
   JEV_URL            System One endpoint. Default: ${officialEndpoint}
+  STEERDOWN_EMBEDDING_URL
+                     Base URL of an OpenAI-compatible embeddings endpoint, such
+                     as https://api.openai.com/v1. Vectors are cached in
+                     steerdown.embeddings.json next to the graph file. Leave
+                     the cache out of version control.
+  STEERDOWN_EMBEDDING_MODEL
+                     Embedding model to ask. Needed with the URL.
+  STEERDOWN_EMBEDDING_KEY
+                     API key for the embeddings endpoint, if it needs one.
 
 Options:
   -h, --help  Show this help.
@@ -60,7 +76,7 @@ class UsageError extends ReportedError {}
 
 /** The options each command takes, besides --help. */
 const commandOptions: Record<string, Array<string>> = {
-  build: ["out", "html", "exclude", "scope", "max-pairs"],
+  build: ["out", "html", "exclude", "scope", "max-pairs", "min-similarity"],
   concepts: ["graph"],
   skill: [],
 };
@@ -79,6 +95,7 @@ type BuildValues = {
   exclude?: Array<string>;
   scope?: Array<string>;
   "max-pairs"?: string;
+  "min-similarity"?: string;
 };
 
 /** Reads `--max-pairs`, a whole number that defaults to the build's own limit. */
@@ -88,6 +105,19 @@ function parseMaxPairs(value: string | undefined) {
     throw new UsageError(`--max-pairs must be a whole number, got '${value}'`);
   }
   return maxPairs;
+}
+
+/** Reads `--min-similarity`, a cosine similarity from -1 to 1, or undefined when not given. */
+function parseMinSimilarity(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const minSimilarity = Number(value);
+  const isCosine = value.trim() !== "" && Math.abs(minSimilarity) <= 1;
+  if (!isCosine) {
+    throw new UsageError(`--min-similarity must be a number from -1 to 1, got '${value}'`);
+  }
+  return minSimilarity;
 }
 
 /** Checks the build command's arguments and turns them and the environment into build options. */
@@ -106,6 +136,7 @@ function buildOptions(positionals: Array<string>, values: BuildValues): BuildOpt
     throw new BuildError(`'${values.html}' is not a directory`);
   }
   const maxPairs = parseMaxPairs(values["max-pairs"]);
+  const minSimilarity = parseMinSimilarity(values["min-similarity"]);
 
   return {
     directory,
@@ -115,6 +146,8 @@ function buildOptions(positionals: Array<string>, values: BuildValues): BuildOpt
     scopes: values.scope ?? [],
     maxPairs,
     client: clientFromEnvironment(),
+    embedding: embeddingFromEnvironment(),
+    minSimilarity,
   };
 }
 
@@ -124,6 +157,33 @@ function clientFromEnvironment(): JevClient {
     endpoint: process.env.JEV_URL || officialEndpoint,
     apiKey: process.env.TYPESAFE_API_KEY || undefined,
   };
+}
+
+/** The embeddings endpoint from the environment, or undefined when neither URL nor model is set. */
+function embeddingFromEnvironment(): EmbeddingClient | undefined {
+  const url = process.env.STEERDOWN_EMBEDDING_URL || undefined;
+  const model = process.env.STEERDOWN_EMBEDDING_MODEL || undefined;
+  if (url === undefined && model === undefined) {
+    return undefined;
+  }
+  if (url === undefined || model === undefined) {
+    const missing = url === undefined ? "STEERDOWN_EMBEDDING_URL" : "STEERDOWN_EMBEDDING_MODEL";
+    throw new BuildError(
+      `${missing} is not set. Set both the embedding URL and model, or neither.`,
+    );
+  }
+  return { url, model, apiKey: process.env.STEERDOWN_EMBEDDING_KEY || undefined };
+}
+
+/** The origin sentence line of a build's summary. */
+function formatOrigins(report: BuildReport) {
+  const { origins } = report;
+  if (origins === undefined) {
+    return "Origin sentences: none. Set STEERDOWN_EMBEDDING_URL and STEERDOWN_EMBEDDING_MODEL to find them.";
+  }
+  const below =
+    origins.belowMinimum > 0 ? `, ${formatCount(origins.belowMinimum)} below --min-similarity` : "";
+  return `Origin sentences: ${formatCount(origins.links)} links${below} (${formatCount(origins.embedded)} texts embedded in ${formatCount(origins.requests)} requests)`;
 }
 
 /** The score lines of a build's summary, empty when it read no concept file. */
@@ -151,6 +211,7 @@ function formatReport(report: BuildReport, outPath: string) {
     ...report.skipped.map((section) => `  ${section.id}: ${section.reason}`),
     `Pairs: ${formatCount(report.pairs)} (${formatCount(report.reused)} reused, ${formatCount(report.judged)} judged)`,
     ...formatScores(report),
+    formatOrigins(report),
     `Requests: ${formatCount(report.requests)}, input tokens: ${formatCount(report.inputTokens)}`,
     `Wrote ${outPath}`,
   ];
@@ -226,6 +287,7 @@ function parse(args: Array<string>) {
         exclude: { type: "string", multiple: true },
         scope: { type: "string", multiple: true },
         "max-pairs": { type: "string" },
+        "min-similarity": { type: "string" },
         graph: { type: "string" },
       },
       allowPositionals: true,

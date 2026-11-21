@@ -4,7 +4,8 @@ import type { JevClient, ScoreAnswer } from "./jev.ts";
 import type { RequestProgress } from "./judge.ts";
 import type { Section } from "./sections.ts";
 
-import { askJev, runPooled } from "./jev.ts";
+import { runPooled } from "./http.ts";
+import { askJev } from "./jev.ts";
 import { hash, judgedState, judgedWordLimit, model, requestsInFlight, round } from "./judge.ts";
 
 /** The score question's levels, from 0 to 3. */

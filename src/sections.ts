@@ -51,11 +51,11 @@ export function findMarkdownFiles(directory: string, excluded: Array<string>): A
 const frontMatterFence = /^---\s*$/;
 const frontMatterEnd = /^(---|\.\.\.)\s*$/;
 const frontMatterTitle = /^title:\s*(.*?)\s*$/;
-const codeFenceOpening = /^ {0,3}(`{3,}|~{3,})/;
+export const codeFenceOpening = /^ {0,3}(`{3,}|~{3,})/;
 const atxHeading = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 
-/** The text a heading renders to: link targets, HTML tags and inline markers removed. */
-export function renderedHeading(markdown: string): string {
+/** The text inline Markdown renders to: link targets, HTML tags and inline markers removed. */
+export function renderedInline(markdown: string): string {
   return markdown
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/!?\[([^\]]*)\]\[[^\]]*\]/g, "$1")
@@ -85,13 +85,13 @@ function readFrontMatter(lines: Array<string>): { title: string; bodyStart: numb
 }
 
 /** An open code fence: its marker character and how many of them opened it. */
-type Fence = { marker: string; length: number };
+export type Fence = { marker: string; length: number };
 
 /** The lines under one `##` heading, or under none for the page intro. */
 type Chunk = { heading: string; slug: string; lines: Array<string> };
 
 /** True when a line closes the open fence: only the same marker, at least as many times. */
-function closesFence(line: string, fence: string | undefined, open: Fence) {
+export function closesFence(line: string, fence: string | undefined, open: Fence) {
   return (
     fence !== undefined &&
     fence[0] === open.marker &&
@@ -107,7 +107,7 @@ function parseHeading(line: string): { level: number; text: string } | undefined
     return undefined;
   }
 
-  return { level: heading[1]!.length, text: renderedHeading(heading[2] ?? "") };
+  return { level: heading[1]!.length, text: renderedInline(heading[2] ?? "") };
 }
 
 /**

@@ -11,7 +11,7 @@ const minimumProbability = 0.6;
 /** Largest share of sections whose links may point to one target. */
 const largestTargetShare = 0.1;
 
-type Candidate = { to: number; relation: string; probability: number };
+export type Candidate = { to: number; relation: string; probability: number };
 
 /** Sorts candidates by falling probability, then by target index. */
 function mostProbableFirst(first: Candidate, second: Candidate) {
@@ -21,6 +21,7 @@ function mostProbableFirst(first: Candidate, second: Candidate) {
 /** The scope a page belongs to: the longest scope path that is the page or a folder holding it. */
 export function scopeOf(page: string, scopes: Array<string>) {
   let found: string | undefined;
+
   for (const path of scopes) {
     const scope = path.replace(/\/+$/, "");
     const holdsPage = page === scope || page.startsWith(`${scope}/`);
@@ -33,7 +34,7 @@ export function scopeOf(page: string, scopes: Array<string>) {
 }
 
 /** Each section's judged links that may be shown, most probable first. */
-function candidatesBySection(
+export function candidatesBySection(
   sections: Array<GraphSection>,
   edges: Array<Edge>,
   scopes: Array<string>,

@@ -49,6 +49,19 @@ export type GraphConcept = {
  */
 export type Score = [section: number, concept: number, score: number, confidence: number];
 
+/**
+ * The sentence a shown link grows out of. From and to are indexes into `sections`,
+ *  sentence is its position in the source section's sentences,
+ *  and similarity is the cosine of their embeddings
+ */
+export type Origin = [
+  from: number,
+  to: number,
+  sentence: number,
+  sentenceHash: string,
+  similarity: number,
+];
+
 export type Graph = {
   version: number;
   model: string;
@@ -65,6 +78,9 @@ export type Graph = {
   /** The concepts from the concept file, present when the build read one. */
   concepts?: Array<GraphConcept>;
   scores?: Array<Score>;
+  /** The embedding model that found `origins`, present when the build had one. */
+  embeddingModel?: string;
+  origins?: Array<Origin>;
 };
 
 /** Reads a graph file written by this version, or returns undefined when there is none to reuse. */
@@ -78,8 +94,8 @@ export function readGraph(path: string) {
 }
 
 /**
- * Writes one section, skipped section, edge, section's links, concept or score per line, so
- * changes show up as small diffs.
+ * Writes one section, skipped section, edge, section's links, concept,
+ *  score or origin per line, so changes show up as small diffs.
  */
 export function writeGraph(path: string, graph: Graph) {
   const list = (items: Array<unknown>) =>
@@ -96,6 +112,7 @@ export function writeGraph(path: string, graph: Graph) {
     `  "edges": ${list(graph.edges)}`,
     `  "links": ${list(graph.links)}`,
   ];
+
   if (graph.concepts !== undefined && graph.scores !== undefined) {
     fields.push(
       `  "scoreQuestion": ${JSON.stringify(graph.scoreQuestion)}`,
@@ -103,5 +120,13 @@ export function writeGraph(path: string, graph: Graph) {
       `  "scores": ${list(graph.scores)}`,
     );
   }
+
+  if (graph.embeddingModel !== undefined && graph.origins !== undefined) {
+    fields.push(
+      `  "embeddingModel": ${JSON.stringify(graph.embeddingModel)}`,
+      `  "origins": ${list(graph.origins)}`,
+    );
+  }
+
   writeFileSync(path, `{\n${fields.join(",\n")}\n}\n`);
 }

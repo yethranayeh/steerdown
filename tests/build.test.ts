@@ -94,6 +94,8 @@ async function runCli(
     ...process.env,
     JEV_URL: undefined,
     TYPESAFE_API_KEY: undefined,
+    STEERDOWN_EMBEDDING_URL: undefined,
+    STEERDOWN_EMBEDDING_MODEL: undefined,
     ...env,
   };
   const child = Bun.spawn(["bun", cliPath, ...args], {

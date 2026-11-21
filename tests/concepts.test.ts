@@ -104,7 +104,13 @@ function writeJson(path: string, value: unknown) {
 async function runCli(args: Array<string>) {
   const child = Bun.spawn(["bun", cliPath, ...args], {
     cwd: workDirectory,
-    env: { ...process.env, JEV_URL: jev.url, TYPESAFE_API_KEY: undefined },
+    env: {
+      ...process.env,
+      JEV_URL: jev.url,
+      TYPESAFE_API_KEY: undefined,
+      STEERDOWN_EMBEDDING_URL: undefined,
+      STEERDOWN_EMBEDDING_MODEL: undefined,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
