@@ -2,7 +2,7 @@ import type { SkippedSection } from "./sections.ts";
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
-export const graphVersion = 1;
+export const graphVersion = 2;
 
 export const relations = [
   "prerequisite",
@@ -51,8 +51,8 @@ export type Score = [section: number, concept: number, score: number, confidence
 
 /**
  * The sentence a shown link grows out of. From and to are indexes into `sections`,
- *  sentence is its position in the source section's sentences,
- *  and similarity is the cosine of their embeddings
+ *  sentence is its position in the source section's sentences, sentenceHash the hash of its
+ *  letters and digits, and similarity is the cosine of their embeddings
  */
 export type Origin = [
   from: number,

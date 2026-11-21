@@ -5,7 +5,7 @@ import type { Section } from "./sections.ts";
 import { embeddingCachePath, embedTexts, textHash } from "./embeddings.ts";
 import { hash, judgedState, round } from "./judge.ts";
 import { candidatesBySection } from "./rank.ts";
-import { splitSentences } from "./sentences.ts";
+import { sentenceKey, splitSentences } from "./split.ts";
 
 export type OriginReport = {
   links: number;
@@ -84,7 +84,13 @@ function pickOrigins({
         continue;
       }
 
-      origins.push([from, to, position, hash(sentences[position]!), round(similarity)]);
+      origins.push([
+        from,
+        to,
+        position,
+        hash(sentenceKey(sentences[position]!)),
+        round(similarity),
+      ]);
     }
   });
 
@@ -118,7 +124,7 @@ export async function findOrigins({
   }
 
   const links = candidatesBySection(graphSections, edges, scopes);
-  const sentencesBySection = sections.map((section) => splitSentences(section.text));
+  const sentencesBySection = sections.map((section) => splitSentences(section.blocks));
   const targets = sections.map(targetText);
   const neededTargets = new Set(links.flat().map(({ to }) => to));
   const texts = [

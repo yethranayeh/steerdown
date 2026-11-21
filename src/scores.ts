@@ -6,7 +6,7 @@ import type { Section } from "./sections.ts";
 
 import { runPooled } from "./http.ts";
 import { askJev } from "./jev.ts";
-import { hash, judgedState, judgedWordLimit, model, requestsInFlight, round } from "./judge.ts";
+import { hash, judgedState, model, requestsInFlight, round } from "./judge.ts";
 
 /** The score question's levels, from 0 to 3. */
 const scoreLevels = [
@@ -30,7 +30,6 @@ function scoreInstructions(concept: Pick<Concept, "label" | "definition">) {
 
 const scoreQuestionHash = hash([
   model,
-  judgedWordLimit,
   scoreInstructions({ label: "", definition: "" }),
   scoreLevels,
 ]);

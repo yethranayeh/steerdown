@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataFilePath, emit, pageUrl } from "../src/emit.ts";
-import { relations } from "../src/graph.ts";
+import { graphVersion, relations } from "../src/graph.ts";
 
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
@@ -31,17 +31,17 @@ function section(id: string, pageTitle: string, heading: string) {
 /** A graph over a home page, a guide, a setup page and a page the site no longer builds. */
 function fixtureGraph(): Graph {
   return {
-    version: 1,
+    version: graphVersion,
     model: "jev-test",
     questions: "q",
     relations,
     sections: [
-      section("index.md", "Home", ""),
-      section("guide.md#first-run", "Guide", "First run"),
-      section("guide.md#settings", "Guide", "Settings"),
-      section("setup.md#install", "Setup", "Install"),
-      section("setup.md#removed", "Setup", "Removed"),
-      section("notes.md#later", "Notes", "Later"),
+      section("index.html", "Home", ""),
+      section("guide/index.html#first-run", "Guide", "First run"),
+      section("guide/index.html#settings", "Guide", "Settings"),
+      section("setup.html#install", "Setup", "Install"),
+      section("setup.html#removed", "Setup", "Removed"),
+      section("notes.html#later", "Notes", "Later"),
     ],
     skipped: [],
     edges: [
@@ -124,7 +124,7 @@ describe("emit", () => {
     const report = emit({ graphPath, htmlDirectory: site });
 
     expect(report.written).toBe(3);
-    expect(report.leftOut.map((page) => page.page)).toEqual(["notes.md"]);
+    expect(report.leftOut.map((page) => page.page)).toEqual(["notes.html"]);
     expect(existsSync(join(site, "steerdown/index.json"))).toBe(true);
     expect(existsSync(join(site, "steerdown/guide/index.json"))).toBe(true);
     expect(existsSync(join(site, "steerdown/setup.json"))).toBe(true);
@@ -138,7 +138,7 @@ describe("emit", () => {
     expect(readDataFile("guide/index.json")).toEqual({
       sections: [
         {
-          id: "guide.md#first-run",
+          id: "guide/index.html#first-run",
           links: [
             [0, "next_step", 0.8, 2, "a1b2c3"],
             [1, "detail", 0.7],
@@ -146,7 +146,7 @@ describe("emit", () => {
           defaults: [1, 0],
           scores: [[1, 3]],
         },
-        { id: "guide.md#settings", links: [], defaults: [], scores: [[2, 2]] },
+        { id: "guide/index.html#settings", links: [], defaults: [], scores: [[2, 2]] },
       ],
       targets: [
         ["/setup.html#install", "Setup", "Install", [[0, 2.5]]],
@@ -179,7 +179,7 @@ describe("emit", () => {
   });
 
   test("links sections in two scopes only as alternatives", () => {
-    writeGraphFile({ ...fixtureGraph(), scopes: ["guide.md", "setup.md"] });
+    writeGraphFile({ ...fixtureGraph(), scopes: ["guide", "setup.html"] });
     emit({ graphPath, htmlDirectory: site });
 
     const file = readDataFile("guide/index.json");
@@ -204,7 +204,7 @@ describe("steerdown emit", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("notes.md");
+    expect(result.stdout).toContain("notes.html");
     expect(existsSync(join(site, "steerdown/guide/index.json"))).toBe(true);
   });
 

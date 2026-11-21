@@ -4,25 +4,24 @@ import type { JevClient, JevResponse } from "./jev.ts";
 import type { RequestProgress } from "./judge.ts";
 import type { OriginReport } from "./origins.ts";
 import type { ScoreReport, ScoreRun } from "./scores.ts";
-import type { Section, SkippedSection } from "./sections.ts";
+import type { IdlessHeading, Section, SkippedSection } from "./sections.ts";
 
-import { readPageIds } from "./anchors.ts";
 import { conceptFilePath, readConceptFile } from "./concepts.ts";
 import { ReportedError } from "./errors.ts";
 import { graphVersion, readGraph, relations, writeGraph } from "./graph.ts";
 import { inBatches, runPooled } from "./http.ts";
 import { askJev, officialEndpoint } from "./jev.ts";
-import { hash, judgedState, judgedWordLimit, model, requestsInFlight, round } from "./judge.ts";
+import { hash, judgedState, model, requestsInFlight, round } from "./judge.ts";
 import { findOrigins } from "./origins.ts";
 import { rankLinks } from "./rank.ts";
 import { planScores, scoreConcepts } from "./scores.ts";
-import { findMarkdownFiles, readSections } from "./sections.ts";
+import { findHtmlPages, readSections } from "./sections.ts";
 import { cosine, tfidfVectors } from "./similarity.ts";
 
 export type BuildOptions = {
+  /** The built site. */
   directory: string;
   outPath: string;
-  htmlDirectory: string | undefined;
   excluded: Array<string>;
   /** Files and folders, relative to `directory`, that each cover their own product. */
   scopes: Array<string>;
@@ -38,6 +37,7 @@ export type BuildReport = {
   pages: number;
   sections: number;
   skipped: Array<SkippedSection>;
+  idlessHeadings: Array<IdlessHeading>;
   pairs: number;
   reused: number;
   judged: number;
@@ -67,7 +67,7 @@ function relationInstructions(candidateNumber: number) {
   return `A reader has just finished the documentation section in \`reading\`. What is the section in \`candidates\` with n = ${candidateNumber} to that reader?`;
 }
 
-const questionSetHash = hash([model, judgedWordLimit, relationInstructions(0), relationCriteria]);
+const questionSetHash = hash([model, relationInstructions(0), relationCriteria]);
 
 type Judgment = { relation: string; probabilities: Array<number>; confidence: number };
 
@@ -84,58 +84,6 @@ function pairKey(fromHash: string, toHash: string) {
 /** Candidates are numbered from 1 in a request, and each has its own question. */
 function questionKey(candidateNumber: number) {
   return `relation_${candidateNumber}`;
-}
-
-/** The heading slug after the `#` in a section id. */
-function headingAnchor(section: Section) {
-  return section.id.slice(`${section.page}#`.length);
-}
-
-/** Why the built HTML gives a section no anchor to link to, or undefined when it does. */
-function unlinkableReason(section: Section, pageIds: Set<string> | undefined) {
-  if (pageIds === undefined) {
-    return "no built HTML page";
-  }
-  const isPageIntro = section.heading === "";
-  if (isPageIntro || pageIds.has(headingAnchor(section))) {
-    return undefined;
-  }
-  return "no matching id in the built HTML";
-}
-
-/** Leaves out sections the built HTML gives no anchor to link to. */
-function keepLinkableSections(
-  sections: Array<Section>,
-  htmlDirectory: string,
-): { linkable: Array<Section>; skipped: Array<SkippedSection> } {
-  const idsByPage = new Map<string, Set<string> | undefined>();
-  const linkable: Array<Section> = [];
-  const skipped: Array<SkippedSection> = [];
-  for (const section of sections) {
-    if (!idsByPage.has(section.page)) {
-      idsByPage.set(section.page, readPageIds(htmlDirectory, section.page));
-    }
-    const reason = unlinkableReason(section, idsByPage.get(section.page));
-    if (reason === undefined) {
-      linkable.push(section);
-    } else {
-      skipped.push({ id: section.id, reason });
-    }
-  }
-  return { linkable, skipped };
-}
-
-/** Reads every page's sections, leaving out link hubs and, given the built HTML, unlinkable ones. */
-function readBuildSections(
-  options: BuildOptions,
-  pages: Array<string>,
-): { sections: Array<Section>; skipped: Array<SkippedSection> } {
-  const read = readSections(options.directory, pages);
-  if (options.htmlDirectory === undefined) {
-    return read;
-  }
-  const anchored = keepLinkableSections(read.sections, options.htmlDirectory);
-  return { sections: anchored.linkable, skipped: [...read.skipped, ...anchored.skipped] };
 }
 
 /** Judgments from an earlier graph, keyed by the hashes of both sections, when its questions match. */
@@ -345,7 +293,7 @@ function throwFailure({
 }
 
 /**
- * Splits the Markdown under a directory into sections, judges every pair of sections on different
+ * Splits the pages of a built site into sections, judges every pair of sections on different
  *  pages with Jev, scores every section against the concept file's concepts when present, finds
  *  each showable link's origin sentence when there is an embedding endpoint,
  *  and writes the graph file.
@@ -356,8 +304,8 @@ function throwFailure({
  */
 export async function build(options: BuildOptions): Promise<BuildReport> {
   const concepts = readConceptFile(conceptFilePath(options.outPath));
-  const pages = findMarkdownFiles(options.directory, options.excluded);
-  const { sections, skipped } = readBuildSections(options, pages);
+  const pages = findHtmlPages(options.directory, options.excluded);
+  const { sections, skipped, idlessHeadings } = readSections(options.directory, pages);
   const hashes = sections.map((section) => hash(judgedState(section)));
   const previous = readGraph(options.outPath);
   const judgments = reusableJudgments(previous);
@@ -427,6 +375,7 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     pages: pages.length,
     sections: sections.length,
     skipped,
+    idlessHeadings,
     pairs,
     reused: pairs - toJudge,
     judged: progress.judged,

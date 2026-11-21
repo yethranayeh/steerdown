@@ -138,11 +138,17 @@ beforeEach(() => {
   conceptPath = join(workDirectory, "steerdown.concepts.json");
   proposalPath = join(workDirectory, "steerdown.proposals.json");
   const docs = join(workDirectory, "docs");
-  writeFile(join(docs, "a.md"), "## Alpha\n\nAlpha text.\n\n## Beta\n\nBeta text.\n");
-  writeFile(join(docs, "b.md"), "## Gamma\n\nGamma text.\n\n## Delta\n\nDelta text.\n");
   writeFile(
-    join(docs, "c.md"),
-    "## Epsilon\n\nEpsilon text.\n\n## Zeta\n\nZeta text.\n\n## Eta\n\nEta text.\n",
+    join(docs, "a.html"),
+    '<h2 id="alpha">Alpha</h2><p>Alpha text.</p><h2 id="beta">Beta</h2><p>Beta text.</p>',
+  );
+  writeFile(
+    join(docs, "b.html"),
+    '<h2 id="gamma">Gamma</h2><p>Gamma text.</p><h2 id="delta">Delta</h2><p>Delta text.</p>',
+  );
+  writeFile(
+    join(docs, "c.html"),
+    '<h2 id="epsilon">Epsilon</h2><p>Epsilon text.</p><h2 id="zeta">Zeta</h2><p>Zeta text.</p><h2 id="eta">Eta</h2><p>Eta text.</p>',
   );
   writeJson(conceptPath, concepts);
   jev = startFakeJev();
@@ -207,8 +213,8 @@ describe("steerdown build with a concept file", () => {
     await runCli(["build", "docs"]);
     jev.scoreRequests.length = 0;
     writeFile(
-      join(workDirectory, "docs/c.md"),
-      "## Epsilon\n\nEpsilon text.\n\n## Zeta\n\nZeta text.\n\n## Eta\n\nEta text, longer now.\n",
+      join(workDirectory, "docs/c.html"),
+      '<h2 id="epsilon">Epsilon</h2><p>Epsilon text.</p><h2 id="zeta">Zeta</h2><p>Zeta text.</p><h2 id="eta">Eta</h2><p>Eta text, longer now.</p>',
     );
 
     const result = await runCli(["build", "docs"]);
@@ -297,7 +303,7 @@ describe("steerdown concepts input", () => {
       { ...concepts[2]!, coveredSections: 0 },
     ]);
     expect(input.proposed.map((concept) => concept.id)).toEqual(["eta-work"]);
-    expect(input.uncovered).toEqual(["c.md#eta"]);
+    expect(input.uncovered).toEqual(["c.html#eta"]);
     expect(input.overBroad).toEqual([{ id: "broad", sections: 6 }]);
   });
 

@@ -10,7 +10,7 @@ steerdown scores every section of a Markdown site against the concepts in `steer
 ## Steps
 
 1. Run `npx steerdown concepts input`. If the site's build writes its graph file somewhere other than `steerdown.graph.json`, pass that path with `--graph <file>` to this and the later command. The command prints JSON:
-   - `sections`: every section in the graph, with its `page` (relative to the Markdown folder the site's `steerdown build` reads), `heading`, and `scores` for the concepts it at least mentions. Scores run from 0 ("not about it at all") to 3 ("is mainly about it").
+   - `sections`: every section in the graph, with its `page` (the HTML file, relative to the built site the site's `steerdown build` reads), `heading`, and `scores` for the concepts it at least mentions. Scores run from 0 ("not about it at all") to 3 ("is mainly about it").
    - `concepts`: the concept file's concepts. `coveredSections` counts the sections that score 2 or more. It is `null` for a concept that has not been scored with its current definition yet.
    - `proposed`: concepts already proposed and waiting for review. Do not propose them again.
    - `uncovered`: the sections no concept scores 2 or more on.

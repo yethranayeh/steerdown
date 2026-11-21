@@ -1,8 +1,8 @@
 import type { Graph, GraphSection } from "./graph.ts";
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
-import { findHtmlPage, getHtmlIdAttrs } from "./anchors.ts";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { getHtmlIdAttrs } from "./anchors.ts";
 import { ReportedError } from "./errors.ts";
 import { readGraph } from "./graph.ts";
 import { candidatesBySection } from "./rank.ts";
@@ -69,18 +69,17 @@ export function dataFilePath(htmlFile: string) {
   return `${emitFolder}/${htmlFile.replace(/\.html$/, ".json")}`;
 }
 
-/** Finds a Markdown page's built HTML, or returns undefined when it has none. */
+/** Reads a graph page's built HTML, or returns undefined when the site no longer has it. */
 function readBuiltPage(htmlDirectory: string, page: string): BuiltPage | undefined {
-  const htmlPath = findHtmlPage(htmlDirectory, page);
-  if (htmlPath === undefined) {
+  const htmlPath = join(htmlDirectory, page);
+  if (!existsSync(htmlPath)) {
     return undefined;
   }
 
-  const htmlFile = relative(htmlDirectory, htmlPath).split(sep).join("/");
   return {
-    url: pageUrl(htmlFile),
+    url: pageUrl(page),
     ids: getHtmlIdAttrs(readFileSync(htmlPath, "utf8")),
-    dataFile: dataFilePath(htmlFile),
+    dataFile: dataFilePath(page),
   };
 }
 

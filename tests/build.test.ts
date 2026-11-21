@@ -119,16 +119,16 @@ beforeEach(() => {
   docs = join(workDirectory, "docs");
   graphPath = join(workDirectory, "steerdown.graph.json");
   writeFile(
-    join(docs, "install.md"),
-    "# Install\n\nGet it running.\n\n## On macOS\n\nUse the installer.\n\n## On Linux\n\nUse the package.\n",
+    join(docs, "install.html"),
+    '<h1>Install</h1><p>Get it running.</p><h2 id="on-macos">On macOS</h2><p>Use the installer.</p><h2 id="on-linux">On Linux</h2><p>Use the package.</p>',
   );
   writeFile(
-    join(docs, "guide/use.md"),
-    "# Use\n\n## First run\n\nRun the command.\n\n## Pages\n\n- [One](a.md)\n- [Two](b.md)\n- [Three](c.md)\n",
+    join(docs, "guide/use.html"),
+    '<h1>Use</h1><h2 id="first-run">First run</h2><p>Run the command.</p><h2 id="pages">Pages</h2><ul><li><a href="a.html">One</a></li><li><a href="b.html">Two</a></li><li><a href="c.html">Three</a></li></ul>',
   );
   writeFile(
-    join(docs, "guide/config.md"),
-    "---\ntitle: Config\n---\n\n## Settings\n\nSet the options.\n",
+    join(docs, "guide/config.html"),
+    '<title>Config</title><h2 id="settings">Settings</h2><p>Set the options.</p>',
   );
   jev = startFakeJev();
 });
@@ -147,14 +147,14 @@ describe("steerdown build", () => {
     const graph = readGraph();
     expect(graph.relations).toEqual(relations);
     expect(graph.sections.map((section) => section.id)).toEqual([
-      "guide/config.md#settings",
-      "guide/use.md#first-run",
-      "install.md",
-      "install.md#on-macos",
-      "install.md#on-linux",
+      "guide/config.html#settings",
+      "guide/use.html#first-run",
+      "install.html",
+      "install.html#on-macos",
+      "install.html#on-linux",
     ]);
-    expect(graph.skipped).toEqual([{ id: "guide/use.md#pages", reason: expect.any(String) }]);
-    expect(result.stdout).toContain("guide/use.md#pages");
+    expect(graph.skipped).toEqual([{ id: "guide/use.html#pages", reason: expect.any(String) }]);
+    expect(result.stdout).toContain("guide/use.html#pages");
 
     const pagesBySection = graph.sections.map((section) => section.id.split("#")[0]);
     const crossPagePairs = 5 * 4 - 3 * 2;
@@ -171,7 +171,7 @@ describe("steerdown build", () => {
   });
 
   test("writes each section's links and keeps scopes apart", async () => {
-    const result = await runCli(["build", "docs", "--scope", "guide", "--scope", "install.md"]);
+    const result = await runCli(["build", "docs", "--scope", "guide", "--scope", "install.html"]);
     expect(result.exitCode).toBe(0);
 
     const graph = readGraph();
@@ -187,9 +187,9 @@ describe("steerdown build", () => {
   });
 
   test("records the scopes in the graph, and none without --scope", async () => {
-    await runCli(["build", "docs", "--scope", "guide", "--scope", "install.md"]);
+    await runCli(["build", "docs", "--scope", "guide", "--scope", "install.html"]);
     const scoped = JSON.parse(readFileSync(graphPath, "utf8")) as { scopes?: Array<string> };
-    expect(scoped.scopes).toEqual(["guide", "install.md"]);
+    expect(scoped.scopes).toEqual(["guide", "install.html"]);
 
     await runCli(["build", "docs"]);
     const unscoped = JSON.parse(readFileSync(graphPath, "utf8")) as { scopes?: Array<string> };
@@ -198,10 +198,13 @@ describe("steerdown build", () => {
 
   test("puts the candidates most similar in wording first", async () => {
     const similar = join(workDirectory, "similar");
-    writeFile(join(similar, "a.md"), "## Colours\n\nPick colours for the theme palette.\n");
     writeFile(
-      join(similar, "b.md"),
-      "## Fonts\n\nPick a font.\n\n## Palette\n\nThe theme palette lists colours.\n\n## Shipping\n\nOrders ship weekly.\n",
+      join(similar, "a.html"),
+      '<h2 id="colours">Colours</h2><p>Pick colours for the theme palette.</p>',
+    );
+    writeFile(
+      join(similar, "b.html"),
+      '<h2 id="fonts">Fonts</h2><p>Pick a font.</p><h2 id="palette">Palette</h2><p>The theme palette lists colours.</p><h2 id="shipping">Shipping</h2><p>Orders ship weekly.</p>',
     );
 
     const result = await runCli(["build", "similar"]);
@@ -225,8 +228,8 @@ describe("steerdown build", () => {
     await runCli(["build", "docs"]);
     jev.requests.length = 0;
     writeFile(
-      join(docs, "guide/config.md"),
-      "---\ntitle: Config\n---\n\n## Settings\n\nSet the options, now with defaults.\n",
+      join(docs, "guide/config.html"),
+      '<title>Config</title><h2 id="settings">Settings</h2><p>Set the options, now with defaults.</p>',
     );
 
     const result = await runCli(["build", "docs"]);
@@ -238,35 +241,28 @@ describe("steerdown build", () => {
     expect(readGraph().edges).toHaveLength(14);
   });
 
-  test("skips sections whose heading has no id in the built HTML", async () => {
-    const site = join(workDirectory, "site");
+  test("reports h2 headings without an id and keeps their text in the section before", async () => {
     writeFile(
-      join(site, "install/index.html"),
-      '<h1>Install</h1><h2 id="on-macos">On macOS</h2><h2>On Linux</h2>',
+      join(docs, "install.html"),
+      '<h1>Install</h1><h2 id="on-macos">On macOS</h2><p>Use the installer.</p><h2>On Linux</h2><p>Use the package.</p>',
     );
-    writeFile(join(site, "guide/use.html"), '<h2 id="first-run">First run</h2>');
 
-    const result = await runCli(["build", "docs", "--html", "site"]);
+    const result = await runCli(["build", "docs"]);
     expect(result.exitCode).toBe(0);
-    const graph = readGraph();
-    expect(graph.sections.map((section) => section.id)).toEqual([
-      "guide/use.md#first-run",
-      "install.md",
-      "install.md#on-macos",
+    expect(readGraph().sections.map((section) => section.id)).toEqual([
+      "guide/config.html#settings",
+      "guide/use.html#first-run",
+      "install.html#on-macos",
     ]);
-    expect(graph.skipped.map((section) => section.id).sort()).toEqual([
-      "guide/config.md#settings",
-      "guide/use.md#pages",
-      "install.md#on-linux",
-    ]);
-    expect(result.stdout).toContain("install.md#on-linux");
-    expect(result.stdout).toContain("guide/config.md#settings");
+    expect(result.stdout).toContain("install.html: On Linux");
   });
 
   test("leaves out excluded files and folders", async () => {
     const result = await runCli(["build", "docs", "--exclude", "guide"]);
     expect(result.exitCode).toBe(0);
-    expect(readGraph().sections.every((section) => section.id.startsWith("install.md"))).toBe(true);
+    expect(readGraph().sections.every((section) => section.id.startsWith("install.html"))).toBe(
+      true,
+    );
     expect(jev.requests).toHaveLength(0);
   });
 
@@ -321,6 +317,7 @@ describe("steerdown build", () => {
     [["build"]],
     [["build", "docs", "extra"]],
     [["build", "docs", "--max-pairs", "many"]],
+    [["build", "docs", "--html", "docs"]],
   ])("rejects %p as a usage error", async (args) => {
     const result = await runCli(args);
     expect(result.exitCode).toBe(1);

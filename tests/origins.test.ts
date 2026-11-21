@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hash } from "../src/judge.ts";
+import { sentenceKey } from "../src/split.ts";
 
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const dimensions = 64;
@@ -118,12 +119,12 @@ beforeEach(() => {
   graphPath = join(workDirectory, "steerdown.graph.json");
   cachePath = join(workDirectory, "steerdown.embeddings.json");
   writeFile(
-    join(workDirectory, "docs/setup.md"),
-    `## Setup\n\n${setupSentences.join(" ")}\n\n\`\`\`sh\npalette colours theme\n\`\`\`\n`,
+    join(workDirectory, "docs/setup.html"),
+    `<h2 id="setup">Setup</h2><p>${setupSentences.join(" ")}</p><pre><code>palette colours theme</code></pre>`,
   );
   writeFile(
-    join(workDirectory, "docs/palette.md"),
-    "## Palette\n\nThe palette lists the colours of the theme.\n",
+    join(workDirectory, "docs/palette.html"),
+    '<h2 id="palette">Palette</h2><p>The palette lists the colours of the theme.</p>',
   );
   jev = startFakeJev();
   embeddings = startFakeEmbeddings();
@@ -142,15 +143,15 @@ describe("origin sentences", () => {
 
     const graph = readGraph();
     const ids = graph.sections.map((section) => section.id);
-    const setup = ids.indexOf("setup.md#setup");
-    const palette = ids.indexOf("palette.md#palette");
+    const setup = ids.indexOf("setup.html#setup");
+    const palette = ids.indexOf("palette.html#palette");
     expect(graph.embeddingModel).toBe("embed-test");
     expect(graph.origins).toHaveLength(2);
 
     const fromSetup = graph.origins!.find(([from, to]) => from === setup && to === palette)!;
     const [, , sentence, sentenceHash, similarity] = fromSetup;
     expect(sentence).toBe(1);
-    expect(sentenceHash).toBe(hash(setupSentences[1]));
+    expect(sentenceHash).toBe(hash(sentenceKey(setupSentences[1]!)));
     expect(similarity).toBeGreaterThan(0);
     expect(embeddedTexts()).not.toContain("palette colours theme");
     expect(embeddings.requests.every((request) => request.authorization === null)).toBe(true);
@@ -166,8 +167,8 @@ describe("origin sentences", () => {
     expect(embeddings.requests).toEqual([]);
 
     writeFile(
-      join(workDirectory, "docs/palette.md"),
-      "## Palette\n\nThe palette lists the colours of the theme. It is new.\n",
+      join(workDirectory, "docs/palette.html"),
+      '<h2 id="palette">Palette</h2><p>The palette lists the colours of the theme. It is new.</p>',
     );
     expect((await runBuild()).exitCode).toBe(0);
     expect(embeddings.requests.length).toBeGreaterThan(0);

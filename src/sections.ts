@@ -1,18 +1,48 @@
+import type { DefaultTreeAdapterTypes } from "parse5";
+import type { Block, NodeAdapter } from "./split.ts";
+
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import GithubSlugger from "github-slugger";
+import { parse } from "parse5";
+import {
+  documentTitle,
+  firstElement,
+  isLinkHub,
+  judgedText,
+  pagefindBodies,
+  splitContent,
+} from "./split.ts";
 
 export type Section = {
-  /** Page path, plus `#` and the heading slug for every section but the page intro. */
+  /** Page path, plus `#` and the section's id for every section but the page intro. */
   id: string;
+  /** Path of the built HTML file, relative to the site. */
   page: string;
   pageTitle: string;
-  /** Rendered heading text, empty for the page intro. */
+  /** Heading text, empty for the page intro. */
   heading: string;
+  blocks: Array<Block>;
+  /** The section's judged text, a line per block. */
   text: string;
 };
 
 export type SkippedSection = { id: string; reason: string };
+
+/** An `h2` with no id, whose text stays in the section before it. */
+export type IdlessHeading = { page: string; heading: string };
+
+type ParsedNode = DefaultTreeAdapterTypes.Node;
+
+const parse5Adapter: NodeAdapter<ParsedNode> = {
+  name: (node) => ("tagName" in node ? node.tagName : undefined),
+  attribute: (node, name) =>
+    "attrs" in node
+      ? node.attrs.find((attribute) => attribute.name === name && !attribute.namespace)?.value
+      : undefined,
+  children: (node) => ("childNodes" in node ? node.childNodes : []),
+  text: (node) =>
+    node.nodeName === "#text" ? (node as DefaultTreeAdapterTypes.TextNode).value : undefined,
+};
 
 const ignoredDirectoryNames = new Set(["node_modules"]);
 
@@ -42,193 +72,70 @@ function isExcludedPage(page: string, excluded: Array<string>) {
   return excludedPaths.some((path) => page === path || page.startsWith(`${path}/`));
 }
 
-/** Lists the Markdown files under a directory as sorted paths relative to it, with forward slashes. */
-export function findMarkdownFiles(directory: string, excluded: Array<string>): Array<string> {
+/** Lists the HTML pages of a built site as sorted paths relative to it, with forward slashes. */
+export function findHtmlPages(directory: string, excluded: Array<string>): Array<string> {
   const pages = listFiles(directory).map((path) => relative(directory, path).split(sep).join("/"));
-  return pages.filter((page) => page.endsWith(".md") && !isExcludedPage(page, excluded)).sort();
+  return pages.filter((page) => page.endsWith(".html") && !isExcludedPage(page, excluded)).sort();
 }
 
-const frontMatterFence = /^---\s*$/;
-const frontMatterEnd = /^(---|\.\.\.)\s*$/;
-const frontMatterTitle = /^title:\s*(.*?)\s*$/;
-export const codeFenceOpening = /^ {0,3}(`{3,}|~{3,})/;
-const atxHeading = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
+type ParsedPage = { page: string; document: ParsedNode; bodies: Array<ParsedNode> };
 
-/** The text inline Markdown renders to: link targets, HTML tags and inline markers removed. */
-export function renderedInline(markdown: string): string {
-  return markdown
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/!?\[([^\]]*)\]\[[^\]]*\]/g, "$1")
-    .replace(/<[^>]+>/g, "")
-    .replace(/`+([^`]*?)`+/g, "$1")
-    .replace(/(\*\*|\*|~~)(.+?)\1/g, "$2")
-    .replace(/(?<![\p{L}\p{N}])(__|_)(.+?)\1(?![\p{L}\p{N}])/gu, "$2")
-    .replace(/\\([!-/:-@[-`{-~])/g, "$1")
-    .trim();
-}
-
-/** Reads the title from leading front matter and returns where the page body starts. */
-function readFrontMatter(lines: Array<string>): { title: string; bodyStart: number } {
-  if (!frontMatterFence.test(lines[0] ?? "")) {
-    return { title: "", bodyStart: 0 };
+/**
+ * The elements that hold a page's content: its `data-pagefind-body` elements when the site marks
+ * any, otherwise `main`, then `body`.
+ */
+function contentRoots(parsed: ParsedPage, siteMarksBodies: boolean): Array<ParsedNode> {
+  if (siteMarksBodies) {
+    return parsed.bodies;
   }
-  let title = "";
-  const end = lines.findIndex((line, index) => index > 0 && frontMatterEnd.test(line));
-  const frontMatter = end === -1 ? lines.slice(1) : lines.slice(1, end);
-  for (const line of frontMatter) {
-    const match = line.match(frontMatterTitle);
-    if (match) {
-      title = (match[1] ?? "").replace(/^(["'])(.*)\1$/, "$2");
+  const root =
+    firstElement(parsed.document, parse5Adapter, "main") ??
+    firstElement(parsed.document, parse5Adapter, "body");
+  return root === undefined ? [] : [root];
+}
+
+type ReadResult = {
+  sections: Array<Section>;
+  skipped: Array<SkippedSection>;
+  idlessHeadings: Array<IdlessHeading>;
+};
+
+/** Splits one parsed page into sections, leaving out link hubs. */
+function readPage(parsed: ParsedPage, roots: Array<ParsedNode>, result: ReadResult) {
+  const { page, document } = parsed;
+  const split = splitContent(roots, parse5Adapter);
+  const pageTitle = split.title || documentTitle(document, parse5Adapter) || page;
+  for (const heading of split.idlessHeadings) {
+    result.idlessHeadings.push({ page, heading });
+  }
+  for (const { anchor, heading, blocks } of split.sections) {
+    const id = anchor === "" ? page : `${page}#${anchor}`;
+    if (isLinkHub(blocks)) {
+      result.skipped.push({ id, reason: "mainly a list of links" });
+      continue;
     }
+    result.sections.push({ id, page, pageTitle, heading, blocks, text: judgedText(blocks) });
   }
-  return { title, bodyStart: end === -1 ? lines.length : end + 1 };
-}
-
-/** An open code fence: its marker character and how many of them opened it. */
-export type Fence = { marker: string; length: number };
-
-/** The lines under one `##` heading, or under none for the page intro. */
-type Chunk = { heading: string; slug: string; lines: Array<string> };
-
-/** True when a line closes the open fence: only the same marker, at least as many times. */
-export function closesFence(line: string, fence: string | undefined, open: Fence) {
-  return (
-    fence !== undefined &&
-    fence[0] === open.marker &&
-    fence.length >= open.length &&
-    line.trim() === fence
-  );
-}
-
-/** The level and rendered text of an ATX heading line, or undefined when the line is not one. */
-function parseHeading(line: string): { level: number; text: string } | undefined {
-  const heading = line.match(atxHeading);
-  if (!heading) {
-    return undefined;
-  }
-
-  return { level: heading[1]!.length, text: renderedInline(heading[2] ?? "") };
 }
 
 /**
- * Groups body lines under their `##` headings. The first `#` heading becomes the page title when
- * front matter gave none, and is left out of the text.
+ * Reads and splits every page, leaving out link hubs. When any page marks `data-pagefind-body`,
+ * pages without it are left out.
  */
-function splitBody(
-  lines: Array<string>,
-  frontMatterTitle: string,
-): { pageTitle: string; chunks: Array<Chunk> } {
-  let pageTitle = frontMatterTitle;
-  const slugger = new GithubSlugger();
-  const chunks: Array<Chunk> = [{ heading: "", slug: "", lines: [] }];
-  let openFence: Fence | undefined;
-
-  for (const line of lines) {
-    const current = chunks[chunks.length - 1]!;
-    const fence = line.match(codeFenceOpening)?.[1];
-
-    if (openFence !== undefined) {
-      if (closesFence(line, fence, openFence)) {
-        openFence = undefined;
-      }
-      current.lines.push(line);
+export function readSections(directory: string, pages: Array<string>): ReadResult {
+  const parsedPages: Array<ParsedPage> = pages.map((page) => {
+    const document = parse(readFileSync(join(directory, page), "utf8"));
+    return { page, document, bodies: pagefindBodies(document, parse5Adapter) };
+  });
+  const siteMarksBodies = parsedPages.some((parsed) => parsed.bodies.length > 0);
+  const result: ReadResult = { sections: [], skipped: [], idlessHeadings: [] };
+  for (const parsed of parsedPages) {
+    const roots = contentRoots(parsed, siteMarksBodies);
+    if (roots.length === 0) {
+      result.skipped.push({ id: parsed.page, reason: "no data-pagefind-body element" });
       continue;
     }
-    if (fence !== undefined) {
-      openFence = { marker: fence[0]!, length: fence.length };
-      current.lines.push(line);
-      continue;
-    }
-
-    const heading = parseHeading(line);
-    if (heading === undefined) {
-      current.lines.push(line);
-      continue;
-    }
-
-    const { level, text } = heading;
-    // Every heading takes a slug, so later duplicates get the suffix the rendered page gives them.
-    const slug = slugger.slug(text);
-    const isFirstTitle = level === 1 && pageTitle === "";
-    if (isFirstTitle) {
-      pageTitle = text;
-      continue;
-    }
-    if (level === 2) {
-      chunks.push({ heading: text, slug, lines: [] });
-      continue;
-    }
-    current.lines.push(line);
+    readPage(parsed, roots, result);
   }
-  return { pageTitle, chunks };
-}
-
-/**
- * Splits one Markdown page into sections at its `##` headings. Text before the first `##` is the
- * page intro. Heading slugs follow github-slugger over every heading level, so repeated headings
- * get the same `-1`, `-2` suffixes the rendered page gives them.
- *
- * A line scanner, not a full Markdown parser. It knows front matter, fenced code and `#` headings,
- * not setext headings. Switch to a parser when real documentation shows it splitting pages wrongly.
- */
-export function splitPage(page: string, markdown: string): Array<Section> {
-  const lines = markdown.split(/\r?\n/);
-  const frontMatter = readFrontMatter(lines);
-  const body = splitBody(lines.slice(frontMatter.bodyStart), frontMatter.title);
-  const pageTitle = body.pageTitle || page.replace(/\.md$/, "");
-
-  const sections: Array<Section> = [];
-  for (const chunk of body.chunks) {
-    const text = chunk.lines.join("\n").trim();
-    const isPageIntro = chunk.heading === "";
-    if (isPageIntro && text === "") {
-      continue;
-    }
-    sections.push({
-      id: isPageIntro ? page : `${page}#${chunk.slug}`,
-      page,
-      pageTitle,
-      heading: chunk.heading,
-      text,
-    });
-  }
-  return sections;
-}
-
-const linkListShareForHub = 0.6;
-const linkListItem = /^(?:[-*+]|\d+[.)])\s+\[[^\]]+\]\([^)]*\)/;
-const lineThatIsOnlyALink = /^\[[^\]]+\]\([^)]*\)$/;
-
-/** True when a section is mainly a list of links to other pages, such as a table of contents. */
-export function isLinkHub(text: string): boolean {
-  const lines = text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length === 0) {
-    return false;
-  }
-  const linkLines = lines.filter(
-    (line) => linkListItem.test(line) || lineThatIsOnlyALink.test(line),
-  );
-  return linkLines.length / lines.length >= linkListShareForHub;
-}
-
-/** Reads and splits every page, leaving out link hubs. */
-export function readSections(
-  directory: string,
-  pages: Array<string>,
-): { sections: Array<Section>; skipped: Array<SkippedSection> } {
-  const sections: Array<Section> = [];
-  const skipped: Array<SkippedSection> = [];
-  for (const page of pages) {
-    for (const section of splitPage(page, readFileSync(join(directory, page), "utf8"))) {
-      if (isLinkHub(section.text)) {
-        skipped.push({ id: section.id, reason: "mainly a list of links" });
-        continue;
-      }
-      sections.push(section);
-    }
-  }
-  return { sections, skipped };
+  return result;
 }

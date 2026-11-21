@@ -21,10 +21,11 @@ const helpText = `steerdown: typed reading paths for Markdown judged at build ti
 Usage: steerdown <command> [options]
 
 Commands:
-  build <dir>               Split the Markdown under <dir> into sections, judge how
-                            sections on different pages relate, and write the graph
-                            file. With a steerdown.concepts.json next to the graph
-                            file, also score every section against its concepts.
+  build <dir>               Split the HTML pages of the built site at <dir> into
+                            sections, judge how sections on different pages relate,
+                            and write the graph file. With a steerdown.concepts.json
+                            next to the graph file, also score every section against
+                            its concepts.
                             With an embedding endpoint, also find the sentence
                             each suggested link grows out of.
   concepts input            Print what an agent needs to propose concepts, as JSON.
@@ -42,11 +43,9 @@ Build options:
   --out <file>       Graph file to write. Pairs and scores whose text is unchanged
                      since it was last written are reused.
                      Default: ${defaultOutPath}
-  --html <dir>       The built site. Sections whose heading has no matching id
-                     in its HTML are skipped.
-  --exclude <path>   Leave out a Markdown file or folder, relative to <dir>.
+  --exclude <path>   Leave out an HTML file or folder, relative to <dir>.
                      Repeat for more.
-  --scope <path>     Mark a Markdown file or folder, relative to <dir>, as
+  --scope <path>     Mark an HTML file or folder, relative to <dir>, as
                      covering its own product. Sections in two different scopes
                      are suggested to each other only as alternatives.
                      Repeat for more.
@@ -83,7 +82,7 @@ class UsageError extends ReportedError {}
 
 /** The options each command takes, besides --help. */
 const commandOptions: Record<string, Array<string>> = {
-  build: ["out", "html", "exclude", "scope", "max-pairs", "min-similarity"],
+  build: ["out", "exclude", "scope", "max-pairs", "min-similarity"],
   concepts: ["graph"],
   emit: ["html", "graph"],
   skill: [],
@@ -99,7 +98,6 @@ function isDirectory(path: string) {
 
 type BuildValues = {
   out?: string;
-  html?: string;
   exclude?: Array<string>;
   scope?: Array<string>;
   "max-pairs"?: string;
@@ -132,7 +130,7 @@ function parseMinSimilarity(value: string | undefined) {
 function buildOptions(positionals: Array<string>, values: BuildValues): BuildOptions {
   const [directory, ...extra] = positionals;
   if (directory === undefined) {
-    throw new UsageError("build needs a directory of Markdown files");
+    throw new UsageError("build needs the directory of a built site");
   }
   if (extra.length > 0) {
     throw new UsageError(`unexpected argument '${extra[0]}'`);
@@ -140,16 +138,12 @@ function buildOptions(positionals: Array<string>, values: BuildValues): BuildOpt
   if (!isDirectory(directory)) {
     throw new BuildError(`'${directory}' is not a directory`);
   }
-  if (values.html !== undefined && !isDirectory(values.html)) {
-    throw new BuildError(`'${values.html}' is not a directory`);
-  }
   const maxPairs = parseMaxPairs(values["max-pairs"]);
   const minSimilarity = parseMinSimilarity(values["min-similarity"]);
 
   return {
     directory,
     outPath: values.out ?? defaultOutPath,
-    htmlDirectory: values.html,
     excluded: values.exclude ?? [],
     scopes: values.scope ?? [],
     maxPairs,
@@ -217,6 +211,8 @@ function formatReport(report: BuildReport, outPath: string) {
     `Sections: ${formatCount(report.sections)}`,
     `Skipped sections: ${formatCount(report.skipped.length)}`,
     ...report.skipped.map((section) => `  ${section.id}: ${section.reason}`),
+    `Headings without an id, kept in the section before: ${formatCount(report.idlessHeadings.length)}`,
+    ...report.idlessHeadings.map(({ page, heading }) => `  ${page}: ${heading}`),
     `Pairs: ${formatCount(report.pairs)} (${formatCount(report.reused)} reused, ${formatCount(report.judged)} judged)`,
     ...formatScores(report),
     formatOrigins(report),
