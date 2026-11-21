@@ -100,6 +100,16 @@ function closesFence(line: string, fence: string | undefined, open: Fence) {
   );
 }
 
+/** The level and rendered text of an ATX heading line, or undefined when the line is not one. */
+function parseHeading(line: string): { level: number; text: string } | undefined {
+  const heading = line.match(atxHeading);
+  if (!heading) {
+    return undefined;
+  }
+
+  return { level: heading[1]!.length, text: renderedHeading(heading[2] ?? "") };
+}
+
 /**
  * Groups body lines under their `##` headings. The first `#` heading becomes the page title when
  * front matter gave none, and is left out of the text.
@@ -130,13 +140,13 @@ function splitBody(
       continue;
     }
 
-    const heading = line.match(atxHeading);
-    if (!heading) {
+    const heading = parseHeading(line);
+    if (heading === undefined) {
       current.lines.push(line);
       continue;
     }
-    const level = heading[1]!.length;
-    const text = renderedHeading(heading[2] ?? "");
+
+    const { level, text } = heading;
     // Every heading takes a slug, so later duplicates get the suffix the rendered page gives them.
     const slug = slugger.slug(text);
     const isFirstTitle = level === 1 && pageTitle === "";

@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "curly": ["error", "all"],
+    "typescript/array-type": [
+      "error",
+      {
+        "default": "generic"
+      }
+    ],
+    "typescript/consistent-type-definitions": ["error", "type"],
+    "no-nested-ternary": "error",
+    "func-style": [
+      "error",
+      "declaration",
+      {
+        "allowArrowFunctions": true
+      }
+    ],
+    "max-depth": ["error", 3],
+    "no-else-return": "error",
+    "no-lonely-if": "error",
+    "no-negated-condition": "error",
+    "eqeqeq": "error",
+    "prefer-const": "error",
+    "complexity": ["error", 10],
+    "max-params": ["error", 3],
+    "max-lines": [
+      "error",
+      {
+        "max": 400,
+        "skipBlankLines": true,
+        "skipComments": true
+      }
+    ]
+  }
+}

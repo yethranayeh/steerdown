@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 
-function runCli(...args: string[]) {
+function runCli(...args: Array<string>) {
   const result = Bun.spawnSync(["bun", cliPath, ...args]);
   return {
     exitCode: result.exitCode,

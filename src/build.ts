@@ -265,12 +265,17 @@ function relationRequest(job: RequestJob, sections: Array<Section>) {
 }
 
 /** Stores the judgment for each target the response answered and returns how many it answered. */
-function recordAnswers(
-  job: RequestJob,
-  response: JevResponse,
-  hashes: Array<string>,
-  judgments: Map<string, Judgment>,
-): number {
+function recordAnswers({
+  job,
+  response,
+  hashes,
+  judgments,
+}: {
+  job: RequestJob;
+  response: JevResponse;
+  hashes: Array<string>;
+  judgments: Map<string, Judgment>;
+}): number {
   let answered = 0;
   job.targets.forEach((to, index) => {
     const answer = response.answers[questionKey(index + 1)];
@@ -288,14 +293,21 @@ function recordAnswers(
 }
 
 /** Sends the planned requests and stores their judgments, stopping at the first failed request. */
-async function judgePairs(
-  jobs: Array<RequestJob>,
-  sections: Array<Section>,
-  hashes: Array<string>,
-  judgments: Map<string, Judgment>,
-  client: JevClient,
-  previousModel: string,
-): Promise<JudgingProgress> {
+async function judgePairs({
+  jobs,
+  sections,
+  hashes,
+  judgments,
+  client,
+  previousModel,
+}: {
+  jobs: Array<RequestJob>;
+  sections: Array<Section>;
+  hashes: Array<string>;
+  judgments: Map<string, Judgment>;
+  client: JevClient;
+  previousModel: string;
+}): Promise<JudgingProgress> {
   const progress: JudgingProgress = {
     model: previousModel,
     requests: 0,
@@ -309,7 +321,7 @@ async function judgePairs(
       progress.requests++;
       progress.inputTokens += response.usage.input_tokens;
       progress.model = response.model;
-      progress.judged += recordAnswers(job, response, hashes, judgments);
+      progress.judged += recordAnswers({ job, response, hashes, judgments });
     });
   } catch (error) {
     progress.failure = error;
@@ -355,14 +367,14 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
   const toJudge = jobs.reduce((count, job) => count + job.targets.length, 0);
   checkJudgingAllowed(toJudge, options);
 
-  const progress = await judgePairs(
+  const progress = await judgePairs({
     jobs,
     sections,
     hashes,
     judgments,
-    options.client,
-    previous?.model ?? model,
-  );
+    client: options.client,
+    previousModel: previous?.model ?? model,
+  });
 
   const graphSections: Array<GraphSection> = sections.map((section, index) => ({
     id: section.id,

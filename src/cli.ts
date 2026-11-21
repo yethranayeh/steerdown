@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import type { BuildOptions, BuildReport } from "./build.ts";
+import type { JevClient } from "./jev.ts";
 
 import { existsSync, statSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -90,10 +91,15 @@ function buildOptions(positionals: Array<string>, values: BuildValues): BuildOpt
     excluded: values.exclude ?? [],
     scopes: values.scope ?? [],
     maxPairs,
-    client: {
-      endpoint: process.env.JEV_URL || officialEndpoint,
-      apiKey: process.env.TYPESAFE_API_KEY || undefined,
-    },
+    client: clientFromEnvironment(),
+  };
+}
+
+/** The Jev endpoint and key from the environment. An empty variable counts as unset. */
+function clientFromEnvironment(): JevClient {
+  return {
+    endpoint: process.env.JEV_URL || officialEndpoint,
+    apiKey: process.env.TYPESAFE_API_KEY || undefined,
   };
 }
 

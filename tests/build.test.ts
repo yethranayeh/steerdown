@@ -9,23 +9,23 @@ const relations = ["prerequisite", "next_step", "detail", "alternative", "unrela
 
 type Graph = {
   version: number;
-  relations: string[];
-  sections: { id: string; hash: string }[];
-  skipped: { id: string; reason: string }[];
-  edges: [number, number, string, number[], number][];
-  links: [number, string][][];
+  relations: Array<string>;
+  sections: Array<{ id: string; hash: string }>;
+  skipped: Array<{ id: string; reason: string }>;
+  edges: Array<[number, number, string, Array<number>, number]>;
+  links: Array<Array<[number, string]>>;
 };
 
 type FakeJev = {
   url: string;
-  requests: {
+  requests: Array<{
     authorization: string | null;
     candidates: number;
     reading: string;
-    candidateHeadings: string[];
-  }[];
+    candidateHeadings: Array<string>;
+  }>;
   /** Status to answer with for each next request, before falling back to 200. */
-  statuses: number[];
+  statuses: Array<number>;
   stop: () => void;
 };
 
@@ -36,7 +36,7 @@ function startFakeJev(): FakeJev {
     async fetch(request) {
       type Judged = { heading: string };
       const body = (await request.json()) as {
-        state: { reading: Judged; candidates: Judged[] };
+        state: { reading: Judged; candidates: Array<Judged> };
         questions: Record<string, unknown>;
       };
       fake.requests.push({
@@ -87,7 +87,7 @@ function writeFile(path: string, text: string) {
 }
 
 async function runCli(
-  args: string[],
+  args: Array<string>,
   env: Record<string, string | undefined> = { JEV_URL: jev.url },
 ) {
   const childEnv: Record<string, string | undefined> = {

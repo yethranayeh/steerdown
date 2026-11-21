@@ -5,7 +5,7 @@ import { relations } from "../src/graph.ts";
 import { rankLinks, scopeOf } from "../src/rank.ts";
 
 /** One section per page, so every section is its own page unless `page` repeats one. */
-function sections(pages: string[]): GraphSection[] {
+function sections(pages: Array<string>): Array<GraphSection> {
   return pages.map((page, index) => ({
     id: `${page}#s${index}`,
     page,
@@ -15,7 +15,17 @@ function sections(pages: string[]): GraphSection[] {
   }));
 }
 
-function edge(from: number, to: number, relation: string, probability: number): Edge {
+function edge({
+  from,
+  to,
+  relation,
+  probability,
+}: {
+  from: number;
+  to: number;
+  relation: string;
+  probability: number;
+}): Edge {
   const probabilities = relations.map((name) => (name === relation ? probability : 0));
   return [from, to, relation, probabilities, probability];
 }
@@ -27,7 +37,11 @@ describe("rankLinks", () => {
   test("leaves out unrelated pairs and labels below the cutoff", () => {
     const links = rankLinks(
       sections(pages),
-      [edge(0, 1, "detail", 0.9), edge(0, 2, "unrelated", 0.95), edge(0, 3, "detail", 0.5)],
+      [
+        edge({ from: 0, to: 1, relation: "detail", probability: 0.9 }),
+        edge({ from: 0, to: 2, relation: "unrelated", probability: 0.95 }),
+        edge({ from: 0, to: 3, relation: "detail", probability: 0.5 }),
+      ],
       [],
     );
     expect(links[0]).toEqual([[1, "detail"]]);
@@ -37,10 +51,10 @@ describe("rankLinks", () => {
     const links = rankLinks(
       sections(pages),
       [
-        edge(0, 1, "detail", 0.7),
-        edge(0, 2, "detail", 0.9),
-        edge(0, 3, "alternative", 0.8),
-        edge(0, 4, "detail", 0.65),
+        edge({ from: 0, to: 1, relation: "detail", probability: 0.7 }),
+        edge({ from: 0, to: 2, relation: "detail", probability: 0.9 }),
+        edge({ from: 0, to: 3, relation: "alternative", probability: 0.8 }),
+        edge({ from: 0, to: 4, relation: "detail", probability: 0.65 }),
       ],
       [],
     );
@@ -56,10 +70,10 @@ describe("rankLinks", () => {
     const links = rankLinks(
       sections(pages),
       [
-        edge(0, 1, "detail", 0.95),
-        edge(0, 2, "detail", 0.9),
-        edge(0, 3, "detail", 0.85),
-        edge(0, 4, "next_step", 0.65),
+        edge({ from: 0, to: 1, relation: "detail", probability: 0.95 }),
+        edge({ from: 0, to: 2, relation: "detail", probability: 0.9 }),
+        edge({ from: 0, to: 3, relation: "detail", probability: 0.85 }),
+        edge({ from: 0, to: 4, relation: "next_step", probability: 0.65 }),
       ],
       [],
     );
@@ -70,9 +84,9 @@ describe("rankLinks", () => {
     const links = rankLinks(
       sections(pages),
       [
-        edge(0, 1, "prerequisite", 0.9),
-        edge(0, 2, "prerequisite", 0.85),
-        edge(0, 3, "detail", 0.7),
+        edge({ from: 0, to: 1, relation: "prerequisite", probability: 0.9 }),
+        edge({ from: 0, to: 2, relation: "prerequisite", probability: 0.85 }),
+        edge({ from: 0, to: 3, relation: "detail", probability: 0.7 }),
       ],
       [],
     );
@@ -86,7 +100,11 @@ describe("rankLinks", () => {
     const shared = sections([...pages.slice(0, 18), "p1.md", "p1.md"]);
     const links = rankLinks(
       shared,
-      [edge(0, 18, "detail", 0.9), edge(0, 19, "detail", 0.85), edge(0, 2, "detail", 0.7)],
+      [
+        edge({ from: 0, to: 18, relation: "detail", probability: 0.9 }),
+        edge({ from: 0, to: 19, relation: "detail", probability: 0.85 }),
+        edge({ from: 0, to: 2, relation: "detail", probability: 0.7 }),
+      ],
       [],
     );
     expect(links[0]).toEqual([
@@ -107,11 +125,11 @@ describe("rankLinks", () => {
     const links = rankLinks(
       scoped,
       [
-        edge(0, 1, "detail", 0.9),
-        edge(0, 2, "prerequisite", 0.9),
-        edge(0, 3, "alternative", 0.8),
-        edge(0, 4, "next_step", 0.7),
-        edge(4, 2, "detail", 0.9),
+        edge({ from: 0, to: 1, relation: "detail", probability: 0.9 }),
+        edge({ from: 0, to: 2, relation: "prerequisite", probability: 0.9 }),
+        edge({ from: 0, to: 3, relation: "alternative", probability: 0.8 }),
+        edge({ from: 0, to: 4, relation: "next_step", probability: 0.7 }),
+        edge({ from: 4, to: 2, relation: "detail", probability: 0.9 }),
       ],
       ["tools", "plugins/"],
     );
@@ -125,10 +143,10 @@ describe("rankLinks", () => {
 
   test("keeps a popular target where it is most probable and refills the rest", () => {
     const popular = 19;
-    const edges: Edge[] = [];
+    const edges: Array<Edge> = [];
     for (let from = 0; from < 5; from++) {
-      edges.push(edge(from, popular, "detail", 0.7 + from * 0.05));
-      edges.push(edge(from, 10 + from, "detail", 0.65));
+      edges.push(edge({ from, to: popular, relation: "detail", probability: 0.7 + from * 0.05 }));
+      edges.push(edge({ from, to: 10 + from, relation: "detail", probability: 0.65 }));
     }
     const links = rankLinks(sections(pages), edges, []);
     const holders = links.flatMap((list, from) =>
