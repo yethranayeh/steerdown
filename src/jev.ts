@@ -21,7 +21,9 @@ const maximumRetries = 7;
 const firstRetryDelayMs = 1000;
 const longestRetryDelayMs = 60_000;
 
-const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
 
 function retryDelay(attempt: number, retryAfter: string | null): number {
   const retryAfterSeconds = Number(retryAfter);
@@ -57,25 +59,28 @@ export async function askJev(client: JevClient, body: object): Promise<JevRespon
 
 /** Runs `work` over every item with at most `limit` running at once, stopping at the first error. */
 export async function runPooled<T>(
-  items: T[],
+  items: Array<T>,
   limit: number,
   work: (item: T) => Promise<void>,
 ): Promise<void> {
-  let next = 0;
-  let failed = false;
-  const errors: unknown[] = [];
-  const worker = async () => {
-    while (!failed && next < items.length) {
-      const item = items[next++]!;
+  let nextIndex = 0;
+  const errors: Array<unknown> = [];
+  const hasWorkLeft = () => errors.length === 0 && nextIndex < items.length;
+
+  async function worker() {
+    while (hasWorkLeft()) {
+      const item = items[nextIndex]!;
+      nextIndex++;
       try {
         await work(item);
       } catch (error) {
-        failed = true;
         errors.push(error);
       }
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
   if (errors.length > 0) {
     throw errors[0];
   }

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
+import type { BuildOptions, BuildReport } from "./build.ts";
+
 import { existsSync, statSync } from "node:fs";
 import { parseArgs } from "node:util";
-
 import { build, BuildError, defaultMaxPairs } from "./build.ts";
 import { officialEndpoint } from "./jev.ts";
 
@@ -40,9 +41,13 @@ Options:
 /** The command line itself is wrong. Printed with a pointer to the help. */
 class UsageError extends Error {}
 
-const formatCount = (value: number) => value.toLocaleString("en-US");
+function formatCount(value: number) {
+  return value.toLocaleString("en-US");
+}
 
-const isDirectory = (path: string) => existsSync(path) && statSync(path).isDirectory();
+function isDirectory(path: string) {
+  return existsSync(path) && statSync(path).isDirectory();
+}
 
 type BuildValues = {
   out?: string;
@@ -52,7 +57,17 @@ type BuildValues = {
   "max-pairs"?: string;
 };
 
-async function runBuild(positionals: Array<string>, values: BuildValues) {
+/** Reads `--max-pairs`, a whole number that defaults to the build's own limit. */
+function parseMaxPairs(value: string | undefined) {
+  const maxPairs = value === undefined ? defaultMaxPairs : Number(value);
+  if (!Number.isSafeInteger(maxPairs) || maxPairs < 0) {
+    throw new UsageError(`--max-pairs must be a whole number, got '${value}'`);
+  }
+  return maxPairs;
+}
+
+/** Checks the build command's arguments and turns them and the environment into build options. */
+function buildOptions(positionals: Array<string>, values: BuildValues): BuildOptions {
   const [directory, ...extra] = positionals;
   if (directory === undefined) {
     throw new UsageError("build needs a directory of Markdown files");
@@ -66,17 +81,11 @@ async function runBuild(positionals: Array<string>, values: BuildValues) {
   if (values.html !== undefined && !isDirectory(values.html)) {
     throw new BuildError(`'${values.html}' is not a directory`);
   }
+  const maxPairs = parseMaxPairs(values["max-pairs"]);
 
-  const maxPairs =
-    values["max-pairs"] === undefined ? defaultMaxPairs : Number(values["max-pairs"]);
-  if (!Number.isSafeInteger(maxPairs) || maxPairs < 0) {
-    throw new UsageError(`--max-pairs must be a whole number, got '${values["max-pairs"]}'`);
-  }
-
-  const outPath = values.out ?? defaultOutPath;
-  const report = await build({
+  return {
     directory,
-    outPath,
+    outPath: values.out ?? defaultOutPath,
     htmlDirectory: values.html,
     excluded: values.exclude ?? [],
     scopes: values.scope ?? [],
@@ -85,7 +94,11 @@ async function runBuild(positionals: Array<string>, values: BuildValues) {
       endpoint: process.env.JEV_URL || officialEndpoint,
       apiKey: process.env.TYPESAFE_API_KEY || undefined,
     },
-  });
+  };
+}
+
+/** The summary a finished build prints. */
+function formatReport(report: BuildReport, outPath: string) {
   const lines = [
     `Pages: ${formatCount(report.pages)}`,
     `Sections: ${formatCount(report.sections)}`,
@@ -95,7 +108,13 @@ async function runBuild(positionals: Array<string>, values: BuildValues) {
     `Requests: ${formatCount(report.requests)}, input tokens: ${formatCount(report.inputTokens)}`,
     `Wrote ${outPath}`,
   ];
-  process.stdout.write(`${lines.join("\n")}\n`);
+  return `${lines.join("\n")}\n`;
+}
+
+async function runBuild(positionals: Array<string>, values: BuildValues) {
+  const options = buildOptions(positionals, values);
+  const report = await build(options);
+  process.stdout.write(formatReport(report, options.outPath));
 }
 
 function parse(args: Array<string>) {

@@ -2,9 +2,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * Finds the built HTML page for a Markdown page:
- * `guide.md` is `guide/index.html` or `guide.html`,
- *  and `index.md` is the `index.html` beside it
+ * Finds the built HTML page for a Markdown page: `guide.md` is `guide/index.html` or
+ *  `guide.html`, and `index.md` is the `index.html` beside it
  */
 export function findHtmlPage(htmlDirectory: string, page: string) {
   const withoutExtension = page.replace(/\.md$/, "");
@@ -13,6 +12,7 @@ export function findHtmlPage(htmlDirectory: string, page: string) {
   return candidates.map((path) => join(htmlDirectory, path)).find((path) => existsSync(path));
 }
 
+/** The values of every `id` attribute in an HTML page */
 export function getHtmlIdAttrs(html: string) {
   const ids = new Set<string>();
 

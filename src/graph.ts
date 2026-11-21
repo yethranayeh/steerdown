@@ -1,4 +1,5 @@
 import type { SkippedSection } from "./sections.ts";
+
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export const graphVersion = 1;
@@ -16,13 +17,13 @@ export type GraphSection = {
   page: string;
   pageTitle: string;
   heading: string;
-  /** Hash of the text the judge read, so a rebuild can tell which sections changed */
+  /** Hash of the text the judge read, so a rebuild can tell which sections changed. */
   hash: string;
 };
 
 /**
- * From and to are indexes into `sections`
- * Probabilities follow the order of `relations`
+ * From and to are indexes into `sections`.
+ * Probabilities follow the order of `relations`.
  */
 export type Edge = [
   from: number,
@@ -32,15 +33,15 @@ export type Edge = [
   confidence: number,
 ];
 
-/** A suggested link: the target's index into `sections` and its relation */
+/** A suggested link: the target's index into `sections` and its relation. */
 export type Link = [to: number, relation: string];
 
 export type Graph = {
   version: number;
   model: string;
-  /** Hash of the question set, so a changed question judges every pair again */
+  /** Hash of the question set, so a changed question judges every pair again. */
   questions: string;
-  relations: readonly string[];
+  relations: ReadonlyArray<string>;
   sections: Array<GraphSection>;
   skipped: Array<SkippedSection>;
   edges: Array<Edge>;
@@ -48,7 +49,7 @@ export type Graph = {
   links: Array<Array<Link>>;
 };
 
-/** Reads a graph file written by this version, or returns undefined when there is none to reuse */
+/** Reads a graph file written by this version, or returns undefined when there is none to reuse. */
 export function readGraph(path: string) {
   if (!existsSync(path)) {
     return undefined;
@@ -59,12 +60,11 @@ export function readGraph(path: string) {
 }
 
 /**
- * Writes one section, skipped section,
- *  edge or section's links per line,
- *  so changes show up as small diffs
+ * Writes one section, skipped section, edge or section's links per line, so changes show up as
+ * small diffs.
  */
 export function writeGraph(path: string, graph: Graph) {
-  const list = (items: unknown[]) =>
+  const list = (items: Array<unknown>) =>
     items.length === 0
       ? "[]"
       : `[\n${items.map((item) => `    ${JSON.stringify(item)}`).join(",\n")}\n  ]`;

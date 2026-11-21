@@ -3,7 +3,7 @@ type Vector = Map<string, number>;
 const wordPattern = /[\p{L}\p{N}_]+/gu;
 
 /** TF-IDF vectors of the given texts, normalized so a dot product is their cosine similarity. */
-export function tfidfVectors(texts: string[]): Vector[] {
+export function tfidfVectors(texts: Array<string>): Array<Vector> {
   const words = texts.map((text) => text.toLowerCase().match(wordPattern) ?? []);
   const documentFrequency = new Map<string, number>();
   for (const textWords of words) {
@@ -30,6 +30,7 @@ export function tfidfVectors(texts: string[]): Vector[] {
   });
 }
 
+/** The cosine similarity of two normalized vectors. */
 export function cosine(first: Vector, second: Vector): number {
   const [smaller, larger] = first.size < second.size ? [first, second] : [second, first];
   let sum = 0;

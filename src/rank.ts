@@ -13,6 +13,11 @@ const largestTargetShare = 0.1;
 
 type Candidate = { to: number; relation: string; probability: number };
 
+/** Sorts candidates by falling probability, then by target index. */
+function mostProbableFirst(first: Candidate, second: Candidate) {
+  return second.probability - first.probability || first.to - second.to;
+}
+
 /** The scope a page belongs to: the longest scope path that is the page or a folder holding it. */
 export function scopeOf(page: string, scopes: Array<string>) {
   let found: string | undefined;
@@ -57,10 +62,26 @@ function candidatesBySection(
   }
 
   for (const list of candidates) {
-    list.sort((first, second) => second.probability - first.probability || first.to - second.to);
+    list.sort(mostProbableFirst);
   }
 
   return candidates;
+}
+
+/** True when a candidate is not yet picked and adds neither a second prerequisite nor a page already linked. */
+function fitsWithPicked(
+  candidate: Candidate,
+  picked: Array<Candidate>,
+  sections: Array<GraphSection>,
+) {
+  const isPicked = picked.includes(candidate);
+  const isSecondPrerequisite =
+    candidate.relation === "prerequisite" &&
+    picked.some((link) => link.relation === "prerequisite");
+  const sharesPage = picked.some(
+    (link) => sections[link.to]!.page === sections[candidate.to]!.page,
+  );
+  return !isPicked && !isSecondPrerequisite && !sharesPage;
 }
 
 /**
@@ -75,27 +96,13 @@ function pickLinks(candidates: Array<Candidate>, sections: Array<GraphSection>):
   }
 
   for (const candidate of candidates) {
-    if (picked.length >= linksPerSection) {
-      break;
+    const hasRoom = picked.length < linksPerSection;
+    if (hasRoom && fitsWithPicked(candidate, picked, sections)) {
+      picked.push(candidate);
     }
-
-    const isSecondPrerequisite =
-      candidate.relation === "prerequisite" &&
-      picked.some((link) => link.relation === "prerequisite");
-    const sharesPage = picked.some(
-      (link) => sections[link.to]!.page === sections[candidate.to]!.page,
-    );
-
-    if (picked.includes(candidate) || isSecondPrerequisite || sharesPage) {
-      continue;
-    }
-
-    picked.push(candidate);
   }
 
-  return picked.sort(
-    (first, second) => second.probability - first.probability || first.to - second.to,
-  );
+  return picked.sort(mostProbableFirst);
 }
 
 /**

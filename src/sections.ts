@@ -16,31 +16,36 @@ export type SkippedSection = { id: string; reason: string };
 
 const ignoredDirectoryNames = new Set(["node_modules"]);
 
-/** Lists the Markdown files under a directory as sorted paths relative to it, with forward slashes. */
-export function findMarkdownFiles(directory: string, excluded: string[]): string[] {
-  const excludedPaths = excluded.map((path) => path.replace(/\/+$/, ""));
-  const isExcluded = (page: string) =>
-    excludedPaths.some((path) => page === path || page.startsWith(`${path}/`));
-  const pages: string[] = [];
-  const visit = (current: string) => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const isHidden = entry.name.startsWith(".");
-      if (isHidden || ignoredDirectoryNames.has(entry.name)) {
-        continue;
-      }
-      const path = join(current, entry.name);
-      if (entry.isDirectory()) {
-        visit(path);
-        continue;
-      }
-      const page = relative(directory, path).split(sep).join("/");
-      if (entry.isFile() && page.endsWith(".md") && !isExcluded(page)) {
-        pages.push(page);
-      }
+/** Every file under a directory, leaving out hidden entries and dependency folders. */
+function listFiles(directory: string): Array<string> {
+  const files: Array<string> = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const isIgnored = entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name);
+    if (isIgnored) {
+      continue;
     }
-  };
-  visit(directory);
-  return pages.sort();
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      for (const file of listFiles(path)) {
+        files.push(file);
+      }
+    } else if (entry.isFile()) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+/** True when a page is an excluded file or lies inside an excluded folder. */
+function isExcludedPage(page: string, excluded: Array<string>) {
+  const excludedPaths = excluded.map((path) => path.replace(/\/+$/, ""));
+  return excludedPaths.some((path) => page === path || page.startsWith(`${path}/`));
+}
+
+/** Lists the Markdown files under a directory as sorted paths relative to it, with forward slashes. */
+export function findMarkdownFiles(directory: string, excluded: Array<string>): Array<string> {
+  const pages = listFiles(directory).map((path) => relative(directory, path).split(sep).join("/"));
+  return pages.filter((page) => page.endsWith(".md") && !isExcludedPage(page, excluded)).sort();
 }
 
 const frontMatterFence = /^---\s*$/;
@@ -63,7 +68,7 @@ export function renderedHeading(markdown: string): string {
 }
 
 /** Reads the title from leading front matter and returns where the page body starts. */
-function readFrontMatter(lines: string[]): { title: string; bodyStart: number } {
+function readFrontMatter(lines: Array<string>): { title: string; bodyStart: number } {
   if (!frontMatterFence.test(lines[0] ?? "")) {
     return { title: "", bodyStart: 0 };
   }
@@ -79,36 +84,41 @@ function readFrontMatter(lines: string[]): { title: string; bodyStart: number } 
   return { title, bodyStart: end === -1 ? lines.length : end + 1 };
 }
 
+/** An open code fence: its marker character and how many of them opened it. */
+type Fence = { marker: string; length: number };
+
+/** The lines under one `##` heading, or under none for the page intro. */
+type Chunk = { heading: string; slug: string; lines: Array<string> };
+
+/** True when a line closes the open fence: only the same marker, at least as many times. */
+function closesFence(line: string, fence: string | undefined, open: Fence) {
+  return (
+    fence !== undefined &&
+    fence[0] === open.marker &&
+    fence.length >= open.length &&
+    line.trim() === fence
+  );
+}
+
 /**
- * Splits one Markdown page into sections at its `##` headings. Text before the first `##` is the
- * page intro. Heading slugs follow github-slugger over every heading level, so repeated headings
- * get the same `-1`, `-2` suffixes the rendered page gives them.
- *
- * A line scanner, not a full Markdown parser. It knows front matter, fenced code and `#` headings,
- * not setext headings. Switch to a parser when real documentation shows it splitting pages wrongly.
+ * Groups body lines under their `##` headings. The first `#` heading becomes the page title when
+ * front matter gave none, and is left out of the text.
  */
-export function splitPage(page: string, markdown: string): Section[] {
-  const lines = markdown.split(/\r?\n/);
-  const frontMatter = readFrontMatter(lines);
-  let pageTitle = frontMatter.title;
-
+function splitBody(
+  lines: Array<string>,
+  frontMatterTitle: string,
+): { pageTitle: string; chunks: Array<Chunk> } {
+  let pageTitle = frontMatterTitle;
   const slugger = new GithubSlugger();
-  const chunks: { heading: string; slug: string; lines: string[] }[] = [
-    { heading: "", slug: "", lines: [] },
-  ];
-  let openFence: { marker: string; length: number } | undefined;
+  const chunks: Array<Chunk> = [{ heading: "", slug: "", lines: [] }];
+  let openFence: Fence | undefined;
 
-  for (const line of lines.slice(frontMatter.bodyStart)) {
+  for (const line of lines) {
     const current = chunks[chunks.length - 1]!;
     const fence = line.match(codeFenceOpening)?.[1];
 
-    if (openFence) {
-      const closesFence =
-        fence !== undefined &&
-        fence[0] === openFence.marker &&
-        fence.length >= openFence.length &&
-        line.trim() === fence;
-      if (closesFence) {
+    if (openFence !== undefined) {
+      if (closesFence(line, fence, openFence)) {
         openFence = undefined;
       }
       current.lines.push(line);
@@ -127,6 +137,7 @@ export function splitPage(page: string, markdown: string): Section[] {
     }
     const level = heading[1]!.length;
     const text = renderedHeading(heading[2] ?? "");
+    // Every heading takes a slug, so later duplicates get the suffix the rendered page gives them.
     const slug = slugger.slug(text);
     const isFirstTitle = level === 1 && pageTitle === "";
     if (isFirstTitle) {
@@ -139,19 +150,34 @@ export function splitPage(page: string, markdown: string): Section[] {
     }
     current.lines.push(line);
   }
+  return { pageTitle, chunks };
+}
 
-  const title = pageTitle || page.replace(/\.md$/, "");
-  const sections: Section[] = [];
-  for (const chunk of chunks) {
+/**
+ * Splits one Markdown page into sections at its `##` headings. Text before the first `##` is the
+ * page intro. Heading slugs follow github-slugger over every heading level, so repeated headings
+ * get the same `-1`, `-2` suffixes the rendered page gives them.
+ *
+ * A line scanner, not a full Markdown parser. It knows front matter, fenced code and `#` headings,
+ * not setext headings. Switch to a parser when real documentation shows it splitting pages wrongly.
+ */
+export function splitPage(page: string, markdown: string): Array<Section> {
+  const lines = markdown.split(/\r?\n/);
+  const frontMatter = readFrontMatter(lines);
+  const body = splitBody(lines.slice(frontMatter.bodyStart), frontMatter.title);
+  const pageTitle = body.pageTitle || page.replace(/\.md$/, "");
+
+  const sections: Array<Section> = [];
+  for (const chunk of body.chunks) {
     const text = chunk.lines.join("\n").trim();
-    const isEmptyIntro = chunk.heading === "" && text === "";
-    if (isEmptyIntro) {
+    const isPageIntro = chunk.heading === "";
+    if (isPageIntro && text === "") {
       continue;
     }
     sections.push({
-      id: chunk.heading === "" ? page : `${page}#${chunk.slug}`,
+      id: isPageIntro ? page : `${page}#${chunk.slug}`,
       page,
-      pageTitle: title,
+      pageTitle,
       heading: chunk.heading,
       text,
     });
@@ -183,10 +209,10 @@ export function isLinkHub(text: string): boolean {
 /** Reads and splits every page, leaving out link hubs. */
 export function readSections(
   directory: string,
-  pages: string[],
-): { sections: Section[]; skipped: SkippedSection[] } {
-  const sections: Section[] = [];
-  const skipped: SkippedSection[] = [];
+  pages: Array<string>,
+): { sections: Array<Section>; skipped: Array<SkippedSection> } {
+  const sections: Array<Section> = [];
+  const skipped: Array<SkippedSection> = [];
   for (const page of pages) {
     for (const section of splitPage(page, readFileSync(join(directory, page), "utf8"))) {
       if (isLinkHub(section.text)) {
