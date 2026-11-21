@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { readPageIds } from "./anchors.ts";
 import { graphVersion, readGraph, relations, writeGraph } from "./graph.ts";
 import { askJev, officialEndpoint, runPooled } from "./jev.ts";
+import { rankLinks } from "./rank.ts";
 import { findMarkdownFiles, readSections } from "./sections.ts";
 import { cosine, tfidfVectors } from "./similarity.ts";
 
@@ -14,6 +15,8 @@ export type BuildOptions = {
   outPath: string;
   htmlDirectory: string | undefined;
   excluded: Array<string>;
+  /** Files and folders, relative to `directory`, that each cover their own product. */
+  scopes: Array<string>;
   maxPairs: number;
   client: JevClient;
 };
@@ -248,6 +251,7 @@ export async function build(options: BuildOptions): Promise<BuildReport> {
     sections: graphSections,
     skipped,
     edges,
+    links: rankLinks(graphSections, edges, options.scopes),
   });
 
   if (failure !== undefined) {

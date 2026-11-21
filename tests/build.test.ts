@@ -13,6 +13,7 @@ type Graph = {
   sections: { id: string; hash: string }[];
   skipped: { id: string; reason: string }[];
   edges: [number, number, string, number[], number][];
+  links: [number, string][][];
 };
 
 type FakeJev = {
@@ -165,6 +166,22 @@ describe("steerdown build", () => {
       crossPagePairs,
     );
     expect(jev.requests.every((request) => request.authorization === null)).toBe(true);
+  });
+
+  test("writes each section's links and keeps scopes apart", async () => {
+    const result = await runCli(["build", "docs", "--scope", "guide", "--scope", "install.md"]);
+    expect(result.exitCode).toBe(0);
+
+    const graph = readGraph();
+    expect(graph.links).toHaveLength(graph.sections.length);
+    const guideSections = [0, 1];
+    expect(graph.links[0]).toEqual([[1, "next_step"]]);
+    expect(graph.links[1]).toEqual([[0, "next_step"]]);
+    for (const [from, links] of graph.links.entries()) {
+      if (!guideSections.includes(from)) {
+        expect(links).toEqual([]);
+      }
+    }
   });
 
   test("puts the candidates most similar in wording first", async () => {

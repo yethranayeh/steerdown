@@ -62,6 +62,23 @@ export function renderedHeading(markdown: string): string {
     .trim();
 }
 
+/** Reads the title from leading front matter and returns where the page body starts. */
+function readFrontMatter(lines: string[]): { title: string; bodyStart: number } {
+  if (!frontMatterFence.test(lines[0] ?? "")) {
+    return { title: "", bodyStart: 0 };
+  }
+  let title = "";
+  const end = lines.findIndex((line, index) => index > 0 && frontMatterEnd.test(line));
+  const frontMatter = end === -1 ? lines.slice(1) : lines.slice(1, end);
+  for (const line of frontMatter) {
+    const match = line.match(frontMatterTitle);
+    if (match) {
+      title = (match[1] ?? "").replace(/^(["'])(.*)\1$/, "$2");
+    }
+  }
+  return { title, bodyStart: end === -1 ? lines.length : end + 1 };
+}
+
 /**
  * Splits one Markdown page into sections at its `##` headings. Text before the first `##` is the
  * page intro. Heading slugs follow github-slugger over every heading level, so repeated headings
@@ -72,22 +89,8 @@ export function renderedHeading(markdown: string): string {
  */
 export function splitPage(page: string, markdown: string): Section[] {
   const lines = markdown.split(/\r?\n/);
-  let pageTitle = "";
-  let lineIndex = 0;
-
-  if (frontMatterFence.test(lines[0] ?? "")) {
-    for (lineIndex = 1; lineIndex < lines.length; lineIndex++) {
-      const line = lines[lineIndex] ?? "";
-      if (frontMatterEnd.test(line)) {
-        lineIndex++;
-        break;
-      }
-      const title = line.match(frontMatterTitle);
-      if (title) {
-        pageTitle = (title[1] ?? "").replace(/^(["'])(.*)\1$/, "$2");
-      }
-    }
-  }
+  const frontMatter = readFrontMatter(lines);
+  let pageTitle = frontMatter.title;
 
   const slugger = new GithubSlugger();
   const chunks: { heading: string; slug: string; lines: string[] }[] = [
@@ -95,8 +98,7 @@ export function splitPage(page: string, markdown: string): Section[] {
   ];
   let openFence: { marker: string; length: number } | undefined;
 
-  for (; lineIndex < lines.length; lineIndex++) {
-    const line = lines[lineIndex] ?? "";
+  for (const line of lines.slice(frontMatter.bodyStart)) {
     const current = chunks[chunks.length - 1]!;
     const fence = line.match(codeFenceOpening)?.[1];
 

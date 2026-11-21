@@ -16,41 +16,54 @@ export type GraphSection = {
   page: string;
   pageTitle: string;
   heading: string;
-  /** Hash of the text the judge read, so a rebuild can tell which sections changed. */
+  /** Hash of the text the judge read, so a rebuild can tell which sections changed */
   hash: string;
 };
 
-/** From and to are indexes into `sections`. Probabilities follow the order of `relations`. */
+/**
+ * From and to are indexes into `sections`
+ * Probabilities follow the order of `relations`
+ */
 export type Edge = [
   from: number,
   to: number,
   relation: string,
-  probabilities: number[],
+  probabilities: Array<number>,
   confidence: number,
 ];
+
+/** A suggested link: the target's index into `sections` and its relation */
+export type Link = [to: number, relation: string];
 
 export type Graph = {
   version: number;
   model: string;
-  /** Hash of the question set, so a changed question judges every pair again. */
+  /** Hash of the question set, so a changed question judges every pair again */
   questions: string;
   relations: readonly string[];
-  sections: GraphSection[];
-  skipped: SkippedSection[];
-  edges: Edge[];
+  sections: Array<GraphSection>;
+  skipped: Array<SkippedSection>;
+  edges: Array<Edge>;
+  /** Each section's suggested links, in the order of `sections`. */
+  links: Array<Array<Link>>;
 };
 
-/** Reads a graph file written by this version, or returns undefined when there is none to reuse. */
-export function readGraph(path: string): Graph | undefined {
+/** Reads a graph file written by this version, or returns undefined when there is none to reuse */
+export function readGraph(path: string) {
   if (!existsSync(path)) {
     return undefined;
   }
+
   const graph = JSON.parse(readFileSync(path, "utf8")) as Graph;
   return graph.version === graphVersion ? graph : undefined;
 }
 
-/** Writes one section, skipped section or edge per line, so changes show up as small diffs. */
-export function writeGraph(path: string, graph: Graph): void {
+/**
+ * Writes one section, skipped section,
+ *  edge or section's links per line,
+ *  so changes show up as small diffs
+ */
+export function writeGraph(path: string, graph: Graph) {
   const list = (items: unknown[]) =>
     items.length === 0
       ? "[]"
@@ -63,7 +76,8 @@ export function writeGraph(path: string, graph: Graph): void {
     `  "relations": ${JSON.stringify(graph.relations)},`,
     `  "sections": ${list(graph.sections)},`,
     `  "skipped": ${list(graph.skipped)},`,
-    `  "edges": ${list(graph.edges)}`,
+    `  "edges": ${list(graph.edges)},`,
+    `  "links": ${list(graph.links)}`,
     "}",
     "",
   ].join("\n");

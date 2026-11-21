@@ -17,7 +17,7 @@ export type JevResponse = {
 export class JevError extends Error {}
 
 const retriedStatuses = new Set([429, 529]);
-const maximumAttempts = 8;
+const maximumRetries = 7;
 const firstRetryDelayMs = 1000;
 const longestRetryDelayMs = 60_000;
 
@@ -39,23 +39,20 @@ export async function askJev(client: JevClient, body: object): Promise<JevRespon
   if (client.apiKey !== undefined) {
     headers.authorization = `Bearer ${client.apiKey}`;
   }
-  for (let attempt = 1; ; attempt++) {
-    const response = await fetch(client.endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-    });
-    if (response.ok) {
-      return (await response.json()) as JevResponse;
-    }
-    const canRetry = retriedStatuses.has(response.status) && attempt < maximumAttempts;
-    if (!canRetry) {
-      const detail = (await response.text()).slice(0, 300);
-      throw new JevError(`Jev returned status ${response.status}: ${detail}`);
-    }
+  const send = () =>
+    fetch(client.endpoint, { method: "POST", headers, body: JSON.stringify(body) });
+
+  let response = await send();
+  for (let retry = 0; retriedStatuses.has(response.status) && retry < maximumRetries; retry++) {
     await response.body?.cancel();
-    await sleep(retryDelay(attempt - 1, response.headers.get("retry-after")));
+    await sleep(retryDelay(retry, response.headers.get("retry-after")));
+    response = await send();
   }
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 300);
+    throw new JevError(`Jev returned status ${response.status}: ${detail}`);
+  }
+  return (await response.json()) as JevResponse;
 }
 
 /** Runs `work` over every item with at most `limit` running at once, stopping at the first error. */

@@ -22,6 +22,10 @@ Build options:
                      in its HTML are skipped.
   --exclude <path>   Leave out a Markdown file or folder, relative to <dir>.
                      Repeat for more.
+  --scope <path>     Mark a Markdown file or folder, relative to <dir>, as
+                     covering its own product. Sections in two different scopes
+                     are suggested to each other only as alternatives.
+                     Repeat for more.
   --max-pairs <n>    Stop before judging more than <n> new pairs.
                      Default: ${defaultMaxPairs}
 
@@ -33,111 +37,108 @@ Options:
   -h, --help  Show this help.
 `;
 
-function usageError(message: string): number {
-  process.stderr.write(`steerdown: ${message}\nRun 'steerdown --help' for usage.\n`);
-  return 1;
-}
-
-function failure(message: string): number {
-  process.stderr.write(`steerdown: ${message}\n`);
-  return 1;
-}
+/** The command line itself is wrong. Printed with a pointer to the help. */
+class UsageError extends Error {}
 
 const formatCount = (value: number) => value.toLocaleString("en-US");
 
 const isDirectory = (path: string) => existsSync(path) && statSync(path).isDirectory();
 
-type BuildValues = { out?: string; html?: string; exclude?: string[]; "max-pairs"?: string };
+type BuildValues = {
+  out?: string;
+  html?: string;
+  exclude?: Array<string>;
+  scope?: Array<string>;
+  "max-pairs"?: string;
+};
 
-async function runBuild(positionals: string[], values: BuildValues): Promise<number> {
+async function runBuild(positionals: Array<string>, values: BuildValues) {
   const [directory, ...extra] = positionals;
   if (directory === undefined) {
-    return usageError("build needs a directory of Markdown files");
+    throw new UsageError("build needs a directory of Markdown files");
   }
-
   if (extra.length > 0) {
-    return usageError(`unexpected argument '${extra[0]}'`);
+    throw new UsageError(`unexpected argument '${extra[0]}'`);
   }
-
   if (!isDirectory(directory)) {
-    return failure(`'${directory}' is not a directory`);
+    throw new BuildError(`'${directory}' is not a directory`);
   }
-
   if (values.html !== undefined && !isDirectory(values.html)) {
-    return failure(`'${values.html}' is not a directory`);
+    throw new BuildError(`'${values.html}' is not a directory`);
   }
 
   const maxPairs =
     values["max-pairs"] === undefined ? defaultMaxPairs : Number(values["max-pairs"]);
   if (!Number.isSafeInteger(maxPairs) || maxPairs < 0) {
-    return usageError(`--max-pairs must be a whole number, got '${values["max-pairs"]}'`);
+    throw new UsageError(`--max-pairs must be a whole number, got '${values["max-pairs"]}'`);
   }
 
   const outPath = values.out ?? defaultOutPath;
-
-  try {
-    const report = await build({
-      directory,
-      outPath,
-      htmlDirectory: values.html,
-      excluded: values.exclude ?? [],
-      maxPairs,
-      client: {
-        endpoint: process.env.JEV_URL || officialEndpoint,
-        apiKey: process.env.TYPESAFE_API_KEY || undefined,
-      },
-    });
-    const lines = [
-      `Pages: ${formatCount(report.pages)}`,
-      `Sections: ${formatCount(report.sections)}`,
-      `Skipped sections: ${formatCount(report.skipped.length)}`,
-      ...report.skipped.map((section) => `  ${section.id}: ${section.reason}`),
-      `Pairs: ${formatCount(report.pairs)} (${formatCount(report.reused)} reused, ${formatCount(report.judged)} judged)`,
-      `Requests: ${formatCount(report.requests)}, input tokens: ${formatCount(report.inputTokens)}`,
-      `Wrote ${outPath}`,
-    ];
-    process.stdout.write(`${lines.join("\n")}\n`);
-    return 0;
-  } catch (error) {
-    if (error instanceof BuildError) {
-      return failure(error.message);
-    }
-    throw error;
-  }
-}
-
-function parse(args: string[]) {
-  return parseArgs({
-    args,
-    options: {
-      help: { type: "boolean", short: "h" },
-      out: { type: "string" },
-      html: { type: "string" },
-      exclude: { type: "string", multiple: true },
-      "max-pairs": { type: "string" },
+  const report = await build({
+    directory,
+    outPath,
+    htmlDirectory: values.html,
+    excluded: values.exclude ?? [],
+    scopes: values.scope ?? [],
+    maxPairs,
+    client: {
+      endpoint: process.env.JEV_URL || officialEndpoint,
+      apiKey: process.env.TYPESAFE_API_KEY || undefined,
     },
-    allowPositionals: true,
   });
+  const lines = [
+    `Pages: ${formatCount(report.pages)}`,
+    `Sections: ${formatCount(report.sections)}`,
+    `Skipped sections: ${formatCount(report.skipped.length)}`,
+    ...report.skipped.map((section) => `  ${section.id}: ${section.reason}`),
+    `Pairs: ${formatCount(report.pairs)} (${formatCount(report.reused)} reused, ${formatCount(report.judged)} judged)`,
+    `Requests: ${formatCount(report.requests)}, input tokens: ${formatCount(report.inputTokens)}`,
+    `Wrote ${outPath}`,
+  ];
+  process.stdout.write(`${lines.join("\n")}\n`);
 }
 
-async function run(args: string[]): Promise<number> {
-  let parsed: ReturnType<typeof parse>;
+function parse(args: Array<string>) {
   try {
-    parsed = parse(args);
+    return parseArgs({
+      args,
+      options: {
+        help: { type: "boolean", short: "h" },
+        out: { type: "string" },
+        html: { type: "string" },
+        exclude: { type: "string", multiple: true },
+        scope: { type: "string", multiple: true },
+        "max-pairs": { type: "string" },
+      },
+      allowPositionals: true,
+    });
   } catch (error) {
-    return usageError((error as Error).message);
+    throw new UsageError((error as Error).message);
   }
-  const { values, positionals } = parsed;
+}
+
+async function run(args: Array<string>) {
+  const { values, positionals } = parse(args);
   const [command, ...rest] = positionals;
 
   if (values.help || command === undefined) {
     process.stdout.write(helpText);
-    return 0;
+    return;
   }
-  if (command === "build") {
-    return runBuild(rest, values);
+  if (command !== "build") {
+    throw new UsageError(`unknown command '${command}'`);
   }
-  return usageError(`unknown command '${command}'`);
+  await runBuild(rest, values);
 }
 
-process.exitCode = await run(process.argv.slice(2));
+try {
+  await run(process.argv.slice(2));
+} catch (error) {
+  const isExpected = error instanceof UsageError || error instanceof BuildError;
+  if (!isExpected) {
+    throw error;
+  }
+  const helpPointer = error instanceof UsageError ? "\nRun 'steerdown --help' for usage." : "";
+  process.stderr.write(`steerdown: ${error.message}${helpPointer}\n`);
+  process.exitCode = 1;
+}
