@@ -155,6 +155,32 @@ describe("originRange", () => {
   });
 });
 
+describe("readSentences", () => {
+  test("gives every sentence of the page as the build splits and hashes it", async () => {
+    const found = await page.evaluate(async () => {
+      const api = (globalThis as unknown as { steerdown: typeof import("../src/browser.ts") })
+        .steerdown;
+      const sentences = await api.readSentences();
+      return sentences.map(({ anchor, position, hash, range }) => ({
+        anchor,
+        position,
+        hash,
+        text: (range as unknown as { toString: () => string }).toString(),
+      }));
+    });
+    const expected = [...sentences].flatMap(([anchor, texts]) =>
+      texts.map((text, position) => ({ anchor, position, key: sentenceKey(text) })),
+    );
+    expect(found.map(({ anchor, position }) => ({ anchor, position }))).toEqual(
+      expected.map(({ anchor, position }) => ({ anchor, position })),
+    );
+    for (const [index, sentence] of found.entries()) {
+      expect(sentenceKey(sentence.text)).toBe(expected[index]!.key);
+      expect(sentence.hash).toBe(hash(expected[index]!.key));
+    }
+  });
+});
+
 describe("loadPage and pins", () => {
   test("loads the current page's emitted data file", async () => {
     const urls = await page.evaluate(async () => {

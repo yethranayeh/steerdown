@@ -1,4 +1,5 @@
 import type { PageFile } from "../src/emit.ts";
+import type { BrowserRange, PageSentence } from "../src/browser.ts";
 
 import { describe, expect, test } from "bun:test";
 import { pageFromData } from "../src/browser.ts";
@@ -80,5 +81,101 @@ describe("pageFromData", () => {
       { id: "api", label: "Library API" },
     ]);
     expect(page.links("missing")).toEqual([]);
+  });
+});
+
+/**
+ * Two sections whose links grow out of numbered sentences. /p/#a and /p/#d share a page, and the
+ * last link of `one` has no origin. Sentence 3 of `one` repeats sentence 1.
+ */
+function rankedFile(): PageFile {
+  return {
+    targets: [
+      ["/p/#a", "P", "A"],
+      ["/q/#b", "Q", "B"],
+      ["/r/#c", "R", "C"],
+      ["/p/#d", "P", "D"],
+      ["/s/", "S", ""],
+    ],
+    sections: [
+      {
+        id: "doc/index.html#one",
+        links: [
+          [0, "detail", 0.9, 0, "h0"],
+          [3, "detail", 0.85, 2, "h2"],
+          [2, "prerequisite", 0.8, 2, "h2"],
+          [4, "prerequisite", 0.7, 1, "h1"],
+          [1, "next_step", 0.6, 1, "h1"],
+          [2, "detail", 0.5],
+        ],
+        defaults: [0, 1, 2],
+      },
+      { id: "doc/index.html#two", links: [[4, "alternative", 0.95, 0, "hx"]], defaults: [0] },
+    ],
+  };
+}
+
+function rankedSentences(): Array<PageSentence> {
+  const sentence = (anchor: string, position: number, hash: string) => ({
+    anchor,
+    position,
+    hash,
+    range: {} as BrowserRange,
+  });
+  return [
+    sentence("one", 0, "h0"),
+    sentence("one", 1, "h1"),
+    sentence("one", 2, "h2"),
+    sentence("one", 3, "h1"),
+    sentence("two", 0, "hx"),
+  ];
+}
+
+/** Weights sentences by `anchor:position`, leaving the rest at 0. */
+function weights(byKey: Record<string, number>) {
+  return (sentence: PageSentence) => byKey[`${sentence.anchor}:${sentence.position}`] ?? 0;
+}
+
+describe("rank", () => {
+  test("gives the links of the weighted sentences, best first, each with its sentence", () => {
+    const links = pageFromData(rankedFile()).rank(rankedSentences(), weights({ "one:2": 1 }));
+    expect(urls(links)).toEqual(["/p/#d", "/r/#c"]);
+    expect(links.map((link) => [link.sentence.anchor, link.sentence.position])).toEqual([
+      ["one", 2],
+      ["one", 2],
+    ]);
+  });
+
+  test("scores probability times weight, across sections", () => {
+    const weighted = weights({ "one:0": 0.5, "two:0": 1 });
+    const links = pageFromData(rankedFile()).rank(rankedSentences(), weighted);
+    expect(urls(links)).toEqual(["/s/", "/p/#a"]);
+    expect(links[0]!.sentence.anchor).toBe("two");
+  });
+
+  test("keeps the variety rules of the default links", () => {
+    const all = weights({ "one:0": 1, "one:1": 1, "one:2": 1 });
+    const links = pageFromData(rankedFile()).rank(rankedSentences(), all);
+    // The next step is kept, /p/#d shares a page with /p/#a, /s/ would be a second prerequisite.
+    expect(urls(links)).toEqual(["/p/#a", "/r/#c", "/q/#b"]);
+  });
+
+  test("ties an origin to the repeated sentence nearest its stored position", () => {
+    const page = pageFromData(rankedFile());
+    expect(page.rank(rankedSentences(), weights({ "one:3": 1 }))).toEqual([]);
+    expect(urls(page.rank(rankedSentences(), weights({ "one:1": 1 })))).toEqual(["/s/", "/q/#b"]);
+  });
+
+  test("gives nothing when no weighted sentence has a link", () => {
+    const page = pageFromData(rankedFile());
+    expect(page.rank(rankedSentences(), () => 0)).toEqual([]);
+    expect(page.rank([], () => 1)).toEqual([]);
+  });
+
+  test("lists every judged link of a section", () => {
+    const page = pageFromData(rankedFile());
+    expect(page.allLinks("one")).toHaveLength(6);
+    expect(page.allLinks("one")[5]!.origin).toBeUndefined();
+    expect(page.allLinks("missing")).toEqual([]);
   });
 });

@@ -31,6 +31,14 @@ type DomRange = {
 
 type DomDocument = DomNode & { createRange: () => DomRange };
 
+/**
+ * A DOM Range. It is the DOM's own `Range` type wherever the site's types include the DOM, so a
+ * site can pass it to `new Highlight()` without a cast.
+ */
+export type BrowserRange = typeof globalThis extends { Range: { prototype: infer DomLibRange } }
+  ? DomLibRange
+  : DomRange;
+
 type BrowserGlobals = {
   document: DomDocument;
   location: { pathname: string };
@@ -69,6 +77,21 @@ export type SuggestedLink = {
 
 export type Concept = { id: string; label: string };
 
+/** A sentence of the page, split as the build splits it. */
+export type PageSentence = {
+  /** The id of its section, empty for the page intro. */
+  anchor: string;
+  /** Its position in the section, as a link's origin counts it. */
+  position: number;
+  /** The hash of its letters and digits, as a link's origin stores it. */
+  hash: string;
+  /** From its first letter or digit to its last. */
+  range: BrowserRange;
+};
+
+/** A ranked link and the sentence it grows out of. */
+export type RankedLink = SuggestedLink & { sentence: PageSentence };
+
 export type SteerdownPage = {
   /** The concepts a reader can pin, empty when the site has no concept file. */
   concepts: Array<Concept>;
@@ -77,6 +100,18 @@ export type SteerdownPage = {
    * concept ids put the targets that cover them first.
    */
   links: (anchor: string, pins?: Array<string>) => Array<SuggestedLink>;
+  /** Every judged link of a section, most probable first. */
+  allLinks: (anchor: string) => Array<SuggestedLink>;
+  /**
+   * The links that grow out of the sentences a reader is on, at most three, best first. Each
+   * link scores its probability times its origin sentence's weight. Sentences weighted 0 or less
+   * add no links, so the result is empty when the reader is on none that has one. The variety
+   * rules of the default links apply. `sentences` is the page's, from `readSentences()`.
+   */
+  rank: (
+    sentences: Array<PageSentence>,
+    weight: (sentence: PageSentence) => number,
+  ) => Array<RankedLink>;
 };
 
 type PageSection = PageFile["sections"][number];
@@ -86,6 +121,33 @@ type LinkRow = PageSection["links"][number];
 function anchorOf(sectionId: string) {
   const hashAt = sectionId.indexOf("#");
   return hashAt === -1 ? "" : sectionId.slice(hashAt + 1);
+}
+
+/** The sentence a link's origin names: the one with its hash nearest to its stored position. */
+function nearestSentence(
+  sentences: Array<PageSentence>,
+  origin: { position: number; hash: string },
+) {
+  let found: PageSentence | undefined;
+  for (const sentence of sentences) {
+    const distance = Math.abs(sentence.position - origin.position);
+    const isCloser = found === undefined || distance < Math.abs(found.position - origin.position);
+    if (sentence.hash === origin.hash && isCloser) {
+      found = sentence;
+    }
+  }
+  return found;
+}
+
+/** The sentences grouped by section anchor. */
+function sentencesByAnchor(sentences: Array<PageSentence>) {
+  const byAnchor = new Map<string, Array<PageSentence>>();
+  for (const sentence of sentences) {
+    const group = byAnchor.get(sentence.anchor) ?? [];
+    group.push(sentence);
+    byAnchor.set(sentence.anchor, group);
+  }
+  return byAnchor;
 }
 
 /** Reads a page's data file as the API. */
@@ -128,7 +190,24 @@ export function pageFromData(file: PageFile): SteerdownPage {
     return pickLinks(candidates).map((candidate) => suggested(candidate.row));
   };
 
-  return { concepts, links };
+  const allLinks = (anchor: string) => sections.get(anchor)?.links.map(suggested) ?? [];
+
+  const rank = (sentences: Array<PageSentence>, weight: (sentence: PageSentence) => number) => {
+    const candidates: Array<RankedLink & { page: string; score: number }> = [];
+    for (const [anchor, group] of sentencesByAnchor(sentences)) {
+      for (const link of allLinks(anchor)) {
+        const sentence = link.origin && nearestSentence(group, link.origin);
+        const score = sentence === undefined ? 0 : link.probability * weight(sentence);
+        if (sentence !== undefined && score > 0) {
+          candidates.push({ ...link, sentence, page: link.url.split("#")[0]!, score });
+        }
+      }
+    }
+    candidates.sort((first, second) => second.score - first.score);
+    return pickLinks(candidates).map(({ page: _page, score: _score, ...link }) => link);
+  };
+
+  return { concepts, links, allLinks, rank };
 }
 
 /** Loads a page's data file, by default the one `steerdown emit` wrote for the current page. */
@@ -179,18 +258,6 @@ function contentRoots(document: DomDocument) {
   return root === undefined ? [] : [root];
 }
 
-/** The sentence position with the given hash nearest to the stored one, or -1 when none has it. */
-function nearestPosition(hashes: Array<string>, hash: string, stored: number) {
-  let found = -1;
-  hashes.forEach((candidate, position) => {
-    const isCloser = found === -1 || Math.abs(position - stored) < Math.abs(found - stored);
-    if (candidate === hash && isCloser) {
-      found = position;
-    }
-  });
-  return found;
-}
-
 /** Where each letter or digit of the text nodes' key sits: its node and character span. */
 function keyPositions(nodes: Array<DomNode>) {
   const positions: Array<{ node: DomNode; start: number; end: number }> = [];
@@ -209,42 +276,69 @@ function keyPositions(nodes: Array<DomNode>) {
   return { key, positions };
 }
 
+type SplitSection = ReturnType<typeof splitContent<DomNode>>["sections"][number];
+
+/** A section's sentences that have letters or digits, each with its hash and Range. */
+async function sectionSentences(document: DomDocument, section: SplitSection) {
+  const keys = splitSentences(section.blocks).map(sentenceKey);
+  const hashes = await Promise.all(keys.map(sentenceHash));
+  const nodes = section.blocks.flatMap((block) => block.sources ?? []);
+  const { key, positions } = keyPositions(nodes);
+  const sentences: Array<PageSentence> = [];
+  let searchFrom = 0;
+  for (const [position, sentence] of keys.entries()) {
+    // Text the build leaves out, such as code blocks, can sit between two sentences.
+    const start = sentence === "" ? -1 : key.indexOf(sentence, searchFrom);
+    if (start !== -1) {
+      const first = positions[start]!;
+      const last = positions[start + sentence.length - 1]!;
+      const range = document.createRange();
+      range.setStart(first.node, first.start);
+      range.setEnd(last.node, last.end);
+      sentences.push({
+        anchor: section.anchor,
+        position,
+        hash: hashes[position]!,
+        range: range as BrowserRange,
+      });
+      searchFrom = start + sentence.length;
+    }
+  }
+  return sentences;
+}
+
+/** The page's sections, split as the build splits them, with the text nodes they come from. */
+function splitPage() {
+  const { document } = browser();
+  const { sections } = splitContent(contentRoots(document), domAdapter, { keepSources: true });
+  return { document, sections };
+}
+
+/**
+ * Every sentence of the page that has letters or digits, in page order, split as the build splits
+ * it. A site checks their Ranges to tell which ones a reader is on.
+ */
+export async function readSentences(): Promise<Array<PageSentence>> {
+  const { document, sections } = splitPage();
+  const bySection = await Promise.all(
+    sections.map((section) => sectionSentences(document, section)),
+  );
+  return bySection.flat();
+}
+
 /**
  * The Range over the sentence a link grows out of, in the section with the given anchor, or
- * undefined when the page no longer has it. The section is split as the build splits it, and the
- * sentence is found by its hash, nearest to its stored position. The Range runs from its first
- * letter or digit to its last.
+ * undefined when the page no longer has it. The sentence is found by its hash, nearest to its
+ * stored position.
  */
 export async function originRange(
   anchor: string,
   link: SuggestedLink,
-): Promise<DomRange | undefined> {
-  const { document } = browser();
-  const split = splitContent(contentRoots(document), domAdapter, { keepSources: true });
-  const section = split.sections.find((candidate) => candidate.anchor === anchor);
+): Promise<BrowserRange | undefined> {
+  const { document, sections } = splitPage();
+  const section = sections.find((candidate) => candidate.anchor === anchor);
   if (link.origin === undefined || section === undefined) {
     return undefined;
   }
-
-  const keys = splitSentences(section.blocks).map(sentenceKey);
-  const hashes = await Promise.all(keys.map(sentenceHash));
-  const position = nearestPosition(hashes, link.origin.hash, link.origin.position);
-  const sentence = keys[position];
-  if (sentence === undefined || sentence === "") {
-    return undefined;
-  }
-
-  const nodes = section.blocks.flatMap((block) => block.sources ?? []);
-  const { key, positions } = keyPositions(nodes);
-  const expected = keys.slice(0, position).join("").length;
-  const start = key.startsWith(sentence, expected) ? expected : key.indexOf(sentence);
-  if (start === -1) {
-    return undefined;
-  }
-  const first = positions[start]!;
-  const last = positions[start + sentence.length - 1]!;
-  const range = document.createRange();
-  range.setStart(first.node, first.start);
-  range.setEnd(last.node, last.end);
-  return range;
+  return nearestSentence(await sectionSentences(document, section), link.origin)?.range;
 }
