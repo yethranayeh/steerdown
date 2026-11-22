@@ -9,7 +9,7 @@ import type { NodeAdapter } from "./split.ts";
 import { pickLinks } from "./pick.ts";
 import { sentenceKey, splitSentences } from "./sentences.ts";
 import { firstElement, pagefindBodies, splitContent } from "./split.ts";
-import { dataFilePath, htmlFileOf } from "./urls.ts";
+import { dataFilePath, htmlFilesOf } from "./urls.ts";
 
 type DomNode = {
   nodeType: number;
@@ -205,14 +205,27 @@ export function pageFromData(file: PageFile): SteerdownPage {
   return { concepts, links, allLinks, rank };
 }
 
-/** Loads a page's data file, by default the one `steerdown emit` wrote for the current page. */
+/**
+ * Loads a page's data file, by default the one `steerdown emit` wrote for the current page. A URL
+ * that could be either a folder page or a file page tries both, folder first.
+ */
 export async function loadPage(dataUrl?: string): Promise<SteerdownPage> {
-  const url = dataUrl ?? `/${dataFilePath(htmlFileOf(browser().location.pathname))}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`steerdown: no page data at ${url} (status ${response.status})`);
+  const urls =
+    dataUrl === undefined
+      ? htmlFilesOf(browser().location.pathname).map((htmlFile) => `/${dataFilePath(htmlFile)}`)
+      : [dataUrl];
+  const statuses: Array<string> = [];
+
+  for (const url of urls) {
+    const response = await fetch(url);
+    if (response.ok) {
+      return pageFromData((await response.json()) as PageFile);
+    }
+
+    statuses.push(`${url} (status ${response.status})`);
   }
-  return pageFromData((await response.json()) as PageFile);
+
+  throw new Error(`steerdown: no page data at ${statuses.join(" or ")}`);
 }
 
 /** The pinned concept ids saved in this browser for this site. */

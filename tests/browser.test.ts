@@ -1,8 +1,8 @@
 import type { PageFile } from "../src/emit.ts";
 import type { BrowserRange, PageSentence } from "../src/browser.ts";
 
-import { describe, expect, test } from "bun:test";
-import { pageFromData } from "../src/browser.ts";
+import { afterEach, describe, expect, test } from "bun:test";
+import { loadPage, pageFromData } from "../src/browser.ts";
 
 /**
  * A page with one section and an intro. Target 0 and 3 share page /a/ and cover concept `cli`,
@@ -177,5 +177,47 @@ describe("rank", () => {
     expect(page.allLinks("one")).toHaveLength(6);
     expect(page.allLinks("one")[5]!.origin).toBeUndefined();
     expect(page.allLinks("missing")).toEqual([]);
+  });
+});
+
+describe("loadPage", () => {
+  const globals = globalThis as unknown as { location?: { pathname: string } };
+  const realFetch = globalThis.fetch;
+
+  /** Serves the page file at the given data path only, and records every requested URL. */
+  function serveAt(pathname: string, dataPath: string) {
+    const requested: Array<string> = [];
+    globals.location = { pathname };
+    globalThis.fetch = (async (url: string) => {
+      requested.push(url);
+      return url === dataPath
+        ? Response.json(pageFile())
+        : new Response("Not found", { status: 404 });
+    }) as typeof fetch;
+    return requested;
+  }
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    delete globals.location;
+  });
+
+  test("finds a folder page's data for a URL without a trailing slash", async () => {
+    const requested = serveAt("/guide", "/steerdown/guide/index.json");
+    const page = await loadPage();
+    expect(page.allLinks("start")).toHaveLength(5);
+    expect(requested).toEqual(["/steerdown/guide/index.json"]);
+  });
+
+  test("falls back to a file page's data", async () => {
+    const requested = serveAt("/guide", "/steerdown/guide.json");
+    await loadPage();
+    expect(requested).toEqual(["/steerdown/guide/index.json", "/steerdown/guide.json"]);
+  });
+
+  test("asks once for a URL with a trailing slash, and fails when no data exists", async () => {
+    const requested = serveAt("/guide/", "/steerdown/other.json");
+    await expect(loadPage()).rejects.toThrow("/steerdown/guide/index.json");
+    expect(requested).toEqual(["/steerdown/guide/index.json"]);
   });
 });

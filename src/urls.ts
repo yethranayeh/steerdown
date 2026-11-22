@@ -8,10 +8,18 @@ export function pageUrl(htmlFile: string) {
   return `/${htmlFile.replace(/(^|\/)index\.html$/, "$1")}`;
 }
 
-/** The built HTML file served at a URL path: `/x/` is `x/index.html`, `/x.html` stays `x.html`. */
-export function htmlFileOf(urlPath: string) {
+/**
+ * The built HTML files that can be served at a URL path, most likely first: `/x/` is
+ * `x/index.html`, `/x.html` stays `x.html`, and `/x` is `x/index.html` or `x.html`, as static
+ * hosts serve either at it.
+ */
+export function htmlFilesOf(urlPath: string) {
   const path = urlPath.replace(/^\/+/, "");
-  return path === "" || path.endsWith("/") ? `${path}index.html` : path;
+  if (path === "" || path.endsWith("/")) {
+    return [`${path}index.html`];
+  }
+
+  return path.endsWith(".html") ? [path] : [`${path}/index.html`, `${path}.html`];
 }
 
 /** Where a page's data file goes: `x/index.html` gets `steerdown/x/index.json`, `x.html` gets `steerdown/x.json`. */

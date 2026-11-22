@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { emit } from "../src/emit.ts";
-import { dataFilePath, htmlFileOf, pageUrl } from "../src/urls.ts";
+import { dataFilePath, htmlFilesOf, pageUrl } from "../src/urls.ts";
 import { graphVersion, relations } from "../src/graph.ts";
 
 const cliPath = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
@@ -115,8 +115,15 @@ describe("page URLs", () => {
     ["docs/cli/index.html", "/docs/cli/", "steerdown/docs/cli/index.json"],
   ])("%s is served at %s with its data in %s", (htmlFile, url, dataFile) => {
     expect(pageUrl(htmlFile)).toBe(url);
-    expect(htmlFileOf(url)).toBe(htmlFile);
+    expect(htmlFilesOf(url)).toEqual([htmlFile]);
     expect(dataFilePath(htmlFile)).toBe(dataFile);
+  });
+
+  test.each([
+    ["/guide", ["guide/index.html", "guide.html"]],
+    ["/docs/cli/tasks", ["docs/cli/tasks/index.html", "docs/cli/tasks.html"]],
+  ])("%s without a trailing slash can be a folder page or a file page", (url, htmlFiles) => {
+    expect(htmlFilesOf(url)).toEqual(htmlFiles);
   });
 });
 
